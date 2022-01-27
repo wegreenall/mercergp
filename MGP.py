@@ -5,7 +5,7 @@ from ortho.basis_functions import (
     smooth_exponential_eigenvalues,
     Basis,
 )
-from MercerGP.kernel import MercerKernel
+from mercergp.kernel import MercerKernel
 import matplotlib.pyplot as plt
 
 

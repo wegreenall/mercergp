@@ -3,7 +3,7 @@ import unittest
 import torch
 
 import kernel as K
-from basis_functions import (
+from ortho.basis_functions import (
     Basis,
     smooth_exponential_basis,
     smooth_exponential_eigenvalues,
