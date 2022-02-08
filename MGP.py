@@ -336,7 +336,7 @@ class HermiteMercerGP(MercerGP):
         sample_coefficients = self._get_sample_coefficients()
         # sample_coefficients = torch.zeros(sample_coefficients.shape)
         return HermiteMercerGPSample(
-            sample_coefficients + self._get_posterior_coefficients(),
+            sample_coefficients + self._calculate_posterior_coefficients(),
             self.dim,
             self.kernel.get_params(),
             self.mean_function,

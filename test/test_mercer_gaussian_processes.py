@@ -66,6 +66,7 @@ class TestMercerGP(unittest.TestCase):
         )
         self.assertTrue((ys == torch.Tensor([3, 4, 5, 6, 9, 2, 7, 8])).all())
 
+    @unittest.skip("Not Implemented!")
     def test_sampling(self):
 
         return
