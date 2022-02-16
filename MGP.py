@@ -1,8 +1,9 @@
 import torch
+import math
 
 from ortho.basis_functions import (
-    smooth_exponential_basis,
-    smooth_exponential_eigenvalues,
+    smooth_exponential_basis_fasshauer,
+    smooth_exponential_eigenvalues_fasshauer,
     Basis,
 )
 from mercergp.kernels import MercerKernel
@@ -177,7 +178,8 @@ class MercerGP:
         """
         mean = torch.zeros([self.order])
         variance = self.kernel.get_interim_matrix_inverse(self.x)
-        # variance *= 100
+        # variance = torch.diag(self.kernel.get_eigenvalues())
+
         if (variance != torch.abs(variance)).all():
             breakpoint()
         # variance += 0.001 * torch.eye(variance.shape[0])
@@ -220,8 +222,6 @@ class HermiteMercerGPSample(MercerGPSample):
     Subclassing the MercerGPSample,
     this represents specifically a sample from a MercerGP with a truncated
     smooth exponential kernel via the use of the Mercer kernel representation.
-
-
     """
 
     def __init__(
@@ -233,26 +233,29 @@ class HermiteMercerGPSample(MercerGPSample):
         mean_function_derivative,
     ):
         se_basis = Basis(
-            smooth_exponential_basis, dim, len(coefficients), params
+            smooth_exponential_basis_fasshauer, dim, len(coefficients), params
         )
 
         derivative_se_basis = Basis(
-            smooth_exponential_basis, dim, len(coefficients) + 1, params
+            smooth_exponential_basis_fasshauer,
+            dim,
+            len(coefficients) + 1,
+            params,
         )
 
         super().__init__(se_basis, coefficients, mean_function)
 
         # prepare the derivative function for when necessary
-        dfc_1 = torch.Tensor(
-            [
-                torch.sqrt(torch.tensor(2 * (i - 1 + 1)))
-                for i in range(self.order + 1)
-            ]
+        # dfc_2 "grabs" the basis functions starting with order 1 rather than
+        # order 0
+        # breakpoint()
+        dfc = (
+            torch.cat((torch.Tensor([0]), self.coefficients))
+            * torch.sqrt((torch.linspace(0, self.order, self.order + 1)))
+            * math.sqrt(2)
         )
-        dfc_2 = torch.cat((torch.Tensor([0]), self.coefficients))
-        self.df_second_gp = HilbertSpaceElement(
-            derivative_se_basis, dfc_1 * dfc_2
-        )
+
+        self.df_second_gp = HilbertSpaceElement(derivative_se_basis, dfc)
 
         self.mean_function_derivative = mean_function_derivative
         return
@@ -282,13 +285,13 @@ class HermiteMercerGPSample(MercerGPSample):
 
         # get constant coefficients α, β
         a = self.basis.get_params()["precision_parameter"]
-        e = self.basis.get_params()["ard_parameter"]
-        b = torch.pow((1 + 4 * ((e / a) ** 2)), 0.25)
-        first_term_coefficient = (a ** 2 * (1 + b ** 2)).squeeze()
+        b = self.basis.get_params()["ard_parameter"]
+        c = torch.sqrt(a ** 2 + 2 * a * b)
+        first_term_coefficient = c + a
         first_term = (
-            first_term_coefficient * x * (self(x) - self.mean_function(x))
+            2 * x * first_term_coefficient * (self(x) - self.mean_function(x))
         )
-        second_term_coefficient = (a * b).squeeze()
+        second_term_coefficient = torch.sqrt(2 * c)
         second_term = second_term_coefficient * self.df_second_gp(x)
         third_term = self.mean_function_derivative(x)
         return first_term - second_term + third_term
@@ -320,7 +323,7 @@ class HermiteMercerGP(MercerGP):
         """
 
         se_basis = Basis(
-            smooth_exponential_basis, dim, order, kernel.get_params()
+            smooth_exponential_basis_fasshauer, dim, order, kernel.get_params()
         )
 
         super().__init__(se_basis, order, dim, kernel, mean_function)
@@ -365,8 +368,8 @@ if __name__ == "__main__":
         "precision_parameter": epsilon,
     }
 
-    eigenvalues = smooth_exponential_eigenvalues(m, mercer_args)
-    basis = Basis(smooth_exponential_basis, 1, m, mercer_args)
+    eigenvalues = smooth_exponential_eigenvalues_fasshauer(m, mercer_args)
+    basis = Basis(smooth_exponential_basis_fasshauer, 1, m, mercer_args)
     test_kernel = MercerKernel(m, basis, eigenvalues, mercer_args)
 
     # build the Mercer kernel examples
@@ -391,6 +394,8 @@ if __name__ == "__main__":
     # create pseudodata for training purposes
     mercer_gp = MercerGP(basis, m, dim, test_kernel)
     mercer_gp.add_data(inputs, data_points)
+
+    breakpoint()
 
     # test the inverse
     inv_1 = test_kernel.kernel_inverse(inputs)

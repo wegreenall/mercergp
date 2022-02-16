@@ -9,7 +9,7 @@ import matplotlib.pyplot as plt
 from ortho.basis_functions import (
     Basis,
     # smooth_exponential_basis,
-    smooth_exponential_eigenvalues,
+    smooth_exponential_eigenvalues_fasshauer,
     standard_chebyshev_basis,
 )
 
@@ -248,7 +248,12 @@ class NoiseKernel(StationaryKernel):
 
 
 class MercerKernel(StationaryKernel):
-    required_kernel_arguments = {"ard_parameter", "noise_parameter"}
+    required_kernel_arguments = {
+        "ard_parameter",
+        "noise_parameter",
+        "precision_parameter",
+        "variance_parameter",
+    }
 
     def __init__(self, m, basis: Basis, eigenvalues, kernel_args):
         """
@@ -269,7 +274,7 @@ class MercerKernel(StationaryKernel):
                              tensor the eigenvalues in shape (degree,
                               dimension)
 
-        kernel_params: the parameters we will use to construct the trained
+        kernel_args: the parameters we will use to construct the trained
                        kernel version
         """
 
@@ -280,6 +285,9 @@ class MercerKernel(StationaryKernel):
         self.basis = basis
 
         self.eigenvalues = eigenvalues
+        for param in self.required_kernel_arguments:
+            if param not in kernel_args:
+                raise KeyError(str(param) + " not found in kernel args")
         self.kernel_args = kernel_args
 
     @staticmethod
@@ -389,6 +397,7 @@ class MercerKernel(StationaryKernel):
         interim_matrix = ksiksi + (sigma_e ** 2) * inv_diag_l
         # ( σ^(2) Λ^-1 + Ξ'Ξ)^(-1)
         interim_inv = torch.inverse(interim_matrix)
+        # breakpoint()
         return interim_inv
 
     def set_eigenvalues(self, new_eigenvalues):
@@ -481,7 +490,9 @@ if __name__ == "__main__":
     test_points = torch.linspace(lb + 0.01, ub - 0.01, 100)
     for order in range(5, 75, 20):
         basis = Basis(standard_chebyshev_basis, 1, order, chebyshev_args)
-        eigenvalues = smooth_exponential_eigenvalues(order, mercer_args)
+        eigenvalues = smooth_exponential_eigenvalues_fasshauer(
+            order, mercer_args
+        )
         kernel = MercerKernel(order, basis, eigenvalues, mercer_args)
         result = kernel(test_points, test_points)
         plt.imshow(result, cmap="viridis")
