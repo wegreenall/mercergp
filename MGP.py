@@ -134,6 +134,9 @@ class MercerGP:
             self.basis, self.posterior_coefficients, self.mean_function
         )
 
+    def get_order(self):
+        return self.order
+
     def gen_gp(self):
         """
         Returns a MercerGPSample object representing the sampled Gaussian

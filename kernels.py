@@ -319,19 +319,21 @@ class MercerKernel(StationaryKernel):
         # should be of size (input_size, degree), (test_size, degree)
         input_ksi = self.get_ksi(input_points)
         test_ksi = self.get_ksi(test_points).T
-        input_ksi *= self.kernel_args["noise_parameter"]
-        test_ksi *= self.kernel_args["noise_parameter"]
+        # I don't know why thsi was in here omg
+        # input_ksi *= self.kernel_args["noise_parameter"]
+        # test_ksi *= self.kernel_args["noise_parameter"]
 
         diag_l = torch.diag(self.eigenvalues)
 
-        intermediate_term = torch.mm(input_ksi, diag_l)
+        # intermediate_term = torch.mm(input_ksi, diag_l)
 
         # transposing because I appear to have the shape wrong
-        kernel = torch.mm(intermediate_term, test_ksi).t()
+        # kernel = torch.mm(intermediate_term, test_ksi).t()
 
         # matrix = torch.zeros(input_ksi.shape[0], test_ksi.shape[1])
         # for i,e in enumerate(self.eigenvalues):
         #     matrix += e * torch.outer(input_ksi[:,i] , test_ksi[i, :])
+        kernel = torch.einsum("ij,jk,kl -> il", input_ksi, diag_l, test_ksi)
         return kernel
 
     def get_ksi(self, input_points):
