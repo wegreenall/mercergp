@@ -19,7 +19,7 @@ class HilbertSpaceElement:
     This is useful when producing Mercer Gaussian Processes.
     """
 
-    def __init__(self, basis, coefficients):
+    def __init__(self, basis, coefficients: torch.Tensor):
         self.basis = basis
         self.coefficients = coefficients
         self.order = len(coefficients)
@@ -31,7 +31,7 @@ class HilbertSpaceElement:
         """
         return torch.inner(self.coefficients, self.basis(x)).squeeze()
 
-    def get_order(self):
+    def get_order(self) -> int:
         """
         Getter method for recalling the order of the model; i.e. the bandwidth
         of the kernel whose reproducing space this is an element of.
@@ -85,7 +85,7 @@ class MercerGP:
 
         # stored as a closure - see dosctring
         self.mean_function = mean_function
-        # self.posterior_coefficients = torch.zeros([self.order])
+        self.posterior_coefficients = torch.zeros([self.order])
         return
 
     def add_data(self, x, y):
@@ -101,6 +101,17 @@ class MercerGP:
 
         self.posterior_coefficients = self._calculate_posterior_coefficients()
         return
+
+    def set_data(self, x, y):
+        """
+        Replaces observation data for the given MercerGP.
+
+        :param x: the inputs
+        :param y: the outputs
+        """
+        self.x = x
+        self.y = y
+        self.posterior_coefficients = self._calculate_posterior_coefficients()
 
     def get_inputs(self):
         """

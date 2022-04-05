@@ -249,10 +249,7 @@ class NoiseKernel(StationaryKernel):
 
 class MercerKernel(StationaryKernel):
     required_kernel_arguments = {
-        "ard_parameter",
         "noise_parameter",
-        "precision_parameter",
-        "variance_parameter",
     }
 
     def __init__(self, m, basis: Basis, eigenvalues, kernel_args):
@@ -261,7 +258,7 @@ class MercerKernel(StationaryKernel):
 
         The  Mercer Kernel approximation builds an approximate kernel by
         utilising the Mercer expansion. If you have an eigensystem {λ_i, φ_i},
-        you can construct k(x_i,x_j) ~= Σλ_l φ_l(x_i) φ_l(x_j).
+        you can construct k(x_i,x_j) ~= Σ_i^m λ_i φ_l(x_i) φ_l(x_j).
 
         : param m: the number of terms in the summation, and the highest
         degree of the basis functions used for approximating the kernel
@@ -324,7 +321,7 @@ class MercerKernel(StationaryKernel):
         # test_ksi *= self.kernel_args["noise_parameter"]
 
         diag_l = torch.diag(self.eigenvalues)
-
+        breakpoint()
         # intermediate_term = torch.mm(input_ksi, diag_l)
 
         # transposing because I appear to have the shape wrong
@@ -421,6 +418,10 @@ class MercerKernel(StationaryKernel):
         Mercer kernel representation.
         """
         return self.eigenvalues
+
+    def update_params(self, basis, eigenvalues):
+        self.set_eigenvalues(eigenvalues)
+        self.basis = basis
 
 
 # Composite/exotic kernels
