@@ -321,7 +321,7 @@ class MercerKernel(StationaryKernel):
         # test_ksi *= self.kernel_args["noise_parameter"]
 
         diag_l = torch.diag(self.eigenvalues)
-        breakpoint()
+        # breakpoint()
         # intermediate_term = torch.mm(input_ksi, diag_l)
 
         # transposing because I appear to have the shape wrong
