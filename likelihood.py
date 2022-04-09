@@ -5,6 +5,7 @@ import math
 from ortho.basis_functions import Basis, OrthonormalBasis
 from ortho.orthopoly import OrthogonalBasisFunction
 import matplotlib.pyplot as plt
+from typing import Tuple
 
 torch.autograd.set_detect_anomaly(True)
 
@@ -45,7 +46,7 @@ class MercerLikelihood:
         self.output_sample = output_sample
         pass
 
-    def fit(self, parameters, iter_count=10000, convergence_eps=1e-9):
+    def fit(self, parameters, iter_count=10000, convergence_eps=2e-6):
         """
         Fits the parameters for the given Mercer Gaussian process regression.
         i.e. runs the iteration that maximises the likelihood.
@@ -106,7 +107,7 @@ class MercerLikelihood:
     as well as to impose the single responsibility principle.
     """
 
-    def _det_and_exp(self, parameters) -> (torch.Tensor, torch.Tensor):
+    def _det_and_exp(self, parameters) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         Returns the log determinant and exponential term of the parameters.
 

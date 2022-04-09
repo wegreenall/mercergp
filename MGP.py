@@ -138,17 +138,18 @@ class MercerGP:
         """
         return self.y - self.mean_function(self.get_inputs())
 
-    def get_posterior_mean(self):
+    def get_posterior_mean(self) -> HilbertSpaceElement:
         """
-        Returns the posterior mean function."""
+        Returns the posterior mean function.
+        """
         return MercerGPSample(
             self.basis, self.posterior_coefficients, self.mean_function
         )
 
-    def get_order(self):
+    def get_order(self) -> int:
         return self.order
 
-    def gen_gp(self):
+    def gen_gp(self) -> HilbertSpaceElement:
         """
         Returns a MercerGPSample object representing the sampled Gaussian
         process. It does this by having on it the basis functions and the set
@@ -161,7 +162,7 @@ class MercerGP:
             self.mean_function,
         )
 
-    def _calculate_posterior_coefficients(self):
+    def _calculate_posterior_coefficients(self) -> torch.Tensor:
         """
         Returns the non-random coefficients for the posterior mean according
         to the kernel as added to the Gaussian process, and under the data
@@ -183,7 +184,7 @@ class MercerGP:
         )
         return result
 
-    def _get_sample_coefficients(self):
+    def _get_sample_coefficients(self) -> torch.Tensor:
         """
         Returns random coefficients for a sample according to the kernel.
 
@@ -367,7 +368,7 @@ if __name__ == "__main__":
     sample_size = 300
 
     # build a mercer kernel
-    m = 30  # degree of approximation
+    order = 10  # degree of approximation
     dim = 1
 
     # set up the arguments
@@ -382,9 +383,9 @@ if __name__ == "__main__":
         "precision_parameter": epsilon,
     }
 
-    eigenvalues = smooth_exponential_eigenvalues_fasshauer(m, mercer_args)
-    basis = Basis(smooth_exponential_basis_fasshauer, 1, m, mercer_args)
-    test_kernel = MercerKernel(m, basis, eigenvalues, mercer_args)
+    eigenvalues = smooth_exponential_eigenvalues_fasshauer(order, mercer_args)
+    basis = Basis(smooth_exponential_basis_fasshauer, 1, order, mercer_args)
+    test_kernel = MercerKernel(order, basis, eigenvalues, mercer_args)
 
     # build the Mercer kernel examples
     dist = torch.distributions.Normal(loc=0, scale=epsilon)
@@ -406,28 +407,32 @@ if __name__ == "__main__":
     # build a standard kernel for comparison
     # show the two kernels for comparison. They're close!
     # create pseudodata for training purposes
-    mercer_gp = MercerGP(basis, m, dim, test_kernel)
+    mercer_gp = MercerGP(basis, order, dim, test_kernel)
     mercer_gp.add_data(inputs, data_points)
 
-    breakpoint()
+    # breakpoint()
 
     # test the inverse
-    inv_1 = test_kernel.kernel_inverse(inputs)
-    inv_3 = torch.inverse(test_kernel(inputs, inputs))
+    # inv_1 = test_kernel.kernel_inverse(inputs)
+    # inv_3 = torch.inverse(test_kernel(inputs, inputs))
     test_points = torch.linspace(-2, 2, 100)  # .unsqueeze(1)
     test_sample = mercer_gp.gen_gp()  # the problem!
     test_mean = mercer_gp.get_posterior_mean()
 
+    # GP sample
     plt.plot(
         test_points.flatten().numpy(),
         test_sample(test_points).flatten().numpy(),
     )
+    # GP mean
     plt.plot(
         test_points.flatten().numpy(),
         test_mean(test_points).flatten().numpy(),
     )
+    # true function
     plt.plot(
         test_points.flatten().numpy(), data_func(test_points).flatten().numpy()
     )
+    # input/output points
     plt.scatter(inputs, data_points, marker="+")
     plt.show()
