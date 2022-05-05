@@ -1,15 +1,23 @@
 # builders.py
+import torch
 from mercergp import MGP
 from ortho import basis_functions as bf
 
 
 def gaussian_kernel_mercer_gp(
-    kernel_params: dict, order: int, dim: int
+    ard_parameter: torch.Tensor,
+    precision_parameter: torch.Tensor,
+    order: int,
+    dim: int,
 ) -> MGP.MercerGP:
     """
     Returns a MercerGP instance, with kernel and basis constructed
     from the Gaussian kernel.
     """
+    kernel_params = {
+        "ard_parameter": ard_parameter,
+        "precision_parameter": precision_parameter,
+    }
     eigenvalues = bf.smooth_exponential_eigenvalues_fasshauer(
         order, kernel_params
     )
