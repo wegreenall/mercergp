@@ -85,7 +85,7 @@ class MercerGP:
 
         # stored as a closure - see dosctring
         self.mean_function = mean_function
-        self.posterior_coefficients = torch.zeros([self.order])
+        self.posterior_coefficients = torch.zeros(self.order)
         return
 
     def add_data(self, x, y):
@@ -98,7 +98,6 @@ class MercerGP:
         # add the inputs and alter the coefficients
         self.x = torch.cat([self.x, x])
         self.y = torch.cat([self.y, y])
-
         self.posterior_coefficients = self._calculate_posterior_coefficients()
         return
 
@@ -409,8 +408,6 @@ if __name__ == "__main__":
     # create pseudodata for training purposes
     mercer_gp = MercerGP(basis, order, dim, test_kernel)
     mercer_gp.add_data(inputs, data_points)
-
-    # breakpoint()
 
     # test the inverse
     # inv_1 = test_kernel.kernel_inverse(inputs)

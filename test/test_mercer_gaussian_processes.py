@@ -47,7 +47,7 @@ class TestMercerGP(unittest.TestCase):
         )
 
         self.mercer_gp = MercerGP(
-            self.basis, self.eigenvalues, self.order, self.kernel
+            self.basis, self.order, self.dimension, self.kernel
         )
         return
 
@@ -66,34 +66,26 @@ class TestMercerGP(unittest.TestCase):
         )
         self.assertTrue((ys == torch.Tensor([3, 4, 5, 6, 9, 2, 7, 8])).all())
 
-    @unittest.skip("Not Implemented!")
-    def test_sampling(self):
-
-        return
-
     def test_coefficients_shape_flat(self):
-        mercer_gp = MercerGP(
-            self.basis, self.eigenvalues, self.order, self.kernel
-        )
+        # mercer_gp = MercerGP(
+        # self.basis, self.eigenvalues, self.order, self.kernel
+        # )
         test_inputs = torch.linspace(0, 1, 20)
         test_outputs = torch.linspace(0, 1, 20)
 
-        mercer_gp.add_data(test_inputs, test_outputs)
+        self.mercer_gp.add_data(test_inputs, test_outputs)
 
-        coefficients = mercer_gp._calculate_posterior_coefficients()
+        coefficients = self.mercer_gp._calculate_posterior_coefficients()
         self.assertEqual(coefficients.shape, torch.Size([self.order]))
         return
 
     def test_coefficients_shape_1d(self):
-        mercer_gp = MercerGP(
-            self.basis, self.eigenvalues, self.order, self.kernel
-        )
         test_inputs = torch.linspace(0, 1, 20).unsqueeze(1)
         test_outputs = torch.linspace(0, 1, 20).unsqueeze(1)
 
-        mercer_gp.add_data(test_inputs, test_outputs)
+        self.mercer_gp.add_data(test_inputs, test_outputs)
 
-        coefficients = mercer_gp._calculate_posterior_coefficients()
+        coefficients = self.mercer_gp._calculate_posterior_coefficients()
         self.assertEqual(coefficients.shape, torch.Size([self.order]))
         return
 

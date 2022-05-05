@@ -1,0 +1,21 @@
+# builders.py
+from mercergp import MGP
+from ortho import basis_functions as bf
+
+
+def gaussian_kernel_mercer_gp(
+    kernel_params: dict, order: int, dim: int
+) -> MGP.MercerGP:
+    """
+    Returns a MercerGP instance, with kernel and basis constructed
+    from the Gaussian kernel.
+    """
+    eigenvalues = bf.smooth_exponential_eigenvalues_fasshauer(
+        order, kernel_params
+    )
+    basis = bf.Basis(
+        bf.smooth_exponential_basis_fasshauer, dim, order, kernel_params
+    )
+    kernel = MGP.MercerKernel(order, basis, eigenvalues, kernel_params)
+    mercer_gp = MGP.MercerGP(basis, order, dim, kernel)
+    return mercer_gp
