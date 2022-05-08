@@ -1,7 +1,11 @@
 import torch
 import torch.distributions as D
-from ortho.basis_functions import Basis
-from ortho.orthopoly import OrthogonalBasisFunction
+from ortho.basis_functions import Basis, OrthonormalBasis
+from ortho.orthopoly import (
+    OrthogonalBasisFunction,
+    SymmetricOrthonormalPolynomial,
+)
+from ortho.measure import MaximalEntropyDensity
 from mercergp.likelihood import MercerLikelihood
 
 import unittest
@@ -27,8 +31,16 @@ class TestLikelihoodMethods(unittest.TestCase):
         basis_function = OrthogonalBasisFunction(self.order, betas, gammas)
         basis = Basis(basis_function, 1, self.order)
 
+        orthopoly = SymmetricOrthonormalPolynomial(self.order, gammas)
+        weight_function = MaximalEntropyDensity(
+            self.order, torch.zeros(2 * self.order), gammas
+        )
+        basis = OrthonormalBasis(
+            orthopoly, weight_function, 1, self.order, None
+        )
         # fit the likelihood
         self.parameters = {
+            "gammas": gammas,
             "noise_parameter": torch.Tensor([0.1]),
             "eigenvalue_smoothness_parameter": torch.Tensor([1.0]),
             "eigenvalue_scale_parameter": torch.Tensor([1.0]),
@@ -61,9 +73,14 @@ class TestLikelihoodMethods(unittest.TestCase):
     def test_eigenvalues(self):
         # Get the eigenvalues and check if the are the right shape
         eigenvalues = self.likelihood._eigenvalues(self.parameters)
-        # shape should be:  m x 1
         self.assertEqual(eigenvalues.shape, torch.Size([self.order]))
         pass
+
+    def test_eigenvalues_order(self):
+        eigenvalues = self.likelihood._eigenvalues(self.parameters)
+        for i in range(1, self.order):
+            # print("eigenvalues:", eigenvalues[i])
+            self.assertTrue(eigenvalues[i] <= eigenvalues[i - 1])
 
     def test_ksi(self):
         # Get the basis function and check if it is the right shape
@@ -80,3 +97,9 @@ class TestLikelihoodMethods(unittest.TestCase):
         exp_term = self.likelihood._exp_term(self.parameters, ksiksi_inverse)
         self.assertEqual(exp_term.shape, torch.Size([]))  # 1
         pass
+
+    def test_lambdainv(self):
+        lambdaterm = self.likelihood._lambdainv(self.parameters)
+        self.assertEqual(
+            lambdaterm.shape, torch.Size([self.order, self.order])
+        )  # 1
