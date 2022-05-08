@@ -7,6 +7,7 @@ from ortho import basis_functions as bf
 def gaussian_kernel_mercer_gp(
     ard_parameter: torch.Tensor,
     precision_parameter: torch.Tensor,
+    noise_parameter: torch.Tensor,
     order: int,
     dim: int,
 ) -> MGP.MercerGP:
@@ -17,6 +18,7 @@ def gaussian_kernel_mercer_gp(
     kernel_params = {
         "ard_parameter": ard_parameter,
         "precision_parameter": precision_parameter,
+        "noise_parameter": noise_parameter,
     }
     eigenvalues = bf.smooth_exponential_eigenvalues_fasshauer(
         order, kernel_params
