@@ -19,7 +19,6 @@ class MercerLikelihood:
         self,
         order: int,
         optimiser: torch.optim.Optimizer,
-        scheduler: torch.optim.lr_scheduler.ReduceLROnPlateau,
         basis: OrthonormalBasis,
         input_sample: torch.Tensor,
         output_sample: torch.Tensor,
@@ -44,7 +43,7 @@ class MercerLikelihood:
         """
         self.order = order
         self.optimiser = optimiser
-        self.scheduler = scheduler
+        # self.scheduler = scheduler
 
         self.basis = basis
 
