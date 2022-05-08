@@ -11,6 +11,7 @@ from typing import Tuple
 torch.autograd.set_detect_anomaly(True)
 torch.set_printoptions(linewidth=300)
 from termcolor import colored
+from framework.utils import print_dict
 
 
 class MercerLikelihood:
@@ -52,7 +53,7 @@ class MercerLikelihood:
         self.output_sample = output_sample
         pass
 
-    def fit(self, parameters, iter_count=40000, convergence_eps=2e-6):
+    def fit(self, parameters, iter_count=40000, convergence_eps=3e-3):
         """
         Fits the parameters for the given Mercer Gaussian process regression.
         i.e. runs the iteration that maximises the likelihood.
@@ -60,58 +61,65 @@ class MercerLikelihood:
         convergence_criterion = False
         gammas_for_plot = torch.zeros((iter_count, 2 * self.order))
         losses = torch.zeros(iter_count)
+        optimisables = list(
+            filter(lambda param: (param.requires_grad), parameters.values())
+        )
         for i in range(iter_count):
             gammas_for_plot[i, :] = parameters["gammas"]
             this_loss = self.step_optimisation(parameters)
-            convergence_criterion = (
-                torch.abs(parameters["eigenvalue_scale_parameter"].grad)
-                < convergence_eps
-            ).all()
+
+            # check that all the
+            convergence_criterion = all(
+                [
+                    (torch.abs(param.grad) < convergence_eps).all()
+                    for param in optimisables
+                ]
+            )
 
             losses[i] = this_loss
             if convergence_criterion and i != iter_count:
-                print(parameters["gammas"].grad)
+                # print(parameters["gammas"].grad)
                 print("LIKELIHOOD HAS CONVERGED...")
                 break
 
             elif i == iter_count - 1:
                 print("LIKELIHOOD HAS NOT CONVERGED...")
 
-            if i % 20 == 0:
+            if i % 10 == 0:
                 print("iteration:", i)
+                print(colored("params:", "blue"))
+                print_dict(parameters)
+                print("\n")
                 print(
-                    colored("scale param:", "blue"),
-                    parameters["eigenvalue_scale_parameter"],
-                )
-                print(
-                    colored("scale param grad:", "green"),
-                    parameters["eigenvalue_scale_parameter"].grad,
+                    colored("param grad:", "green"),
+                    parameters["gammas"].grad,
                 )
                 print(colored("log likelihood:", "red"), -this_loss)
-        # plt.plot(gammas_for_plot.detach().numpy())
-        # plt.show()
-        # plt.plot(losses.detach().numpy())
-        # plt.show()
+        plt.plot(gammas_for_plot[:i].detach().numpy())
+        plt.show()
+        plt.plot(losses[:i].detach().numpy())
+        plt.show()
         return
 
     def step_optimisation(self, parameters):
         """
         Steps the optimiser, having evaluated the likelihood (i.e. the loss).
         """
-        self.optimiser.zero_grad()
         loss = self.evaluate_likelihood(parameters)
-        loss.backward()
+        self.optimiser.zero_grad()
+        loss.backward(retain_graph=False)
         self.optimiser.step()
         return loss
 
     def evaluate_likelihood(self, parameters) -> torch.Tensor:
         """
-        Evaluates the marginal likelihood as constructed from the Mercer
-        Guassian process formalism; i.e. using the appropriate Woodbury Sherman
-        Morrison formulae, constructs and evaluates the likelihood function at
-        the input data to allow for optimisation of kernel parameters appearing
-        in the model.
+        Evaluates the negative marginal log likelihood as constructed from the
+        Mercer Guassian process formalism; i.e. using the appropriate Woodbury
+        Sherman Morrison formulae, constructs and evaluates the likelihood
+        function at the input data to allow for optimisation of kernel
+        parameters appearing in the model.
         """
+        # print("EVALLIKELIHOOD")
         const_term = (
             self.sample_size
             * 0.5
@@ -140,6 +148,7 @@ class MercerLikelihood:
 
         we can speed things up by calculating these things only once.
         """
+        # print("DETANDEXP")
         ksi = self._ksi(parameters)
         ksiksi = self._ksiksi(parameters, ksi)
         ksiksi_inverse = self._ksiksi_inverse(parameters, ksi, ksiksi)
@@ -163,6 +172,7 @@ class MercerLikelihood:
 
            ln|ΞΛΞ' + σ^2Ι| = 2n * ln(σ)+|Λ||Λ^-1 + σ^2Ξ'Ξ|
         """
+        # print("LOGDET")
         eigenvalues = self._eigenvalues(parameters)
         term_1 = self.sample_size * torch.log(parameters["noise_parameter"])
         # term_1: det((diag(A)) = prod(aii)
@@ -183,16 +193,15 @@ class MercerLikelihood:
         return (term_1 + term_2 + term_3).squeeze()
 
     def _exp_term(self, parameters, ksiksi_inverse):
-        return torch.einsum(
+        exp_term = torch.einsum(
             "i,ij,j ->", self.output_sample, ksiksi_inverse, self.output_sample
         )
+        return exp_term
 
     def _ksiksi(self, parameters, ksi):
         """
         Returns σ^2 (Ξ'Ξ)
         """
-        # ksi = self._ksi(parameters)  # N x m
-        # print("ksi is:", ksi, "from: _ksiksi(parameters)")
         if (ksi == math.inf).any():
             print("Infs in ksi, in evaluating the likelihood")
             breakpoint()
@@ -200,7 +209,6 @@ class MercerLikelihood:
 
         try:
             returnval = (1 / parameters["noise_parameter"]) * ksiksi
-            # print(ksiksi)
         except RuntimeError:
             breakpoint()
         if (ksiksi == math.inf).any():
@@ -220,6 +228,7 @@ class MercerLikelihood:
              (ΞΛΞ' + σ^2Ι)^{-1} = σ^{-2} I_n - σ^{-2} Ξ(σ^2Λ^-1 + Ξ'Ξ)^{-1}Ξ'
 
         """
+        # print("KSIKSIINV")
         inverse_sigma = 1 / parameters["noise_parameter"]
         term_1 = inverse_sigma * torch.eye(self.sample_size)
 
@@ -243,11 +252,10 @@ class MercerLikelihood:
         and then evaluating the basis.
         Return shape: N x m
         """
-        # self.basis.set_gammas(
-        # torch.cat((torch.Tensor([1.0]), parameters["gammas"][1:]))
-        # )
+        self.basis.set_gammas(
+            torch.cat((torch.Tensor([1.0]), parameters["gammas"][1:]))
+        )
 
-        # breakpoint()
         return self.basis(self.input_sample)
 
     def _lambdainv(self, parameters):
@@ -273,13 +281,13 @@ class MercerLikelihood:
 
         Return shape: m
         """
+        # print("EIGENVALUES!")
         p: int = parameters["eigenvalue_smoothness_parameter"]
         l: torch.Tensor = parameters["eigenvalue_scale_parameter"]  # shape: 1
         cn: torch.Tensor = parameters["shape_parameter"]  # shape: m
         eigenvalues = l / (torch.linspace(1, self.order, self.order) + cn) ** p
         if (eigenvalues != eigenvalues).any():
             breakpoint()
-        # print(eigenvalues)
         assert (eigenvalues >= 0).all(), "eigenvalues are not all positive!"
         return eigenvalues
 
