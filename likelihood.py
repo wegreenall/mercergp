@@ -52,7 +52,7 @@ class MercerLikelihood:
         self.output_sample = output_sample
         pass
 
-    def fit(self, parameters, iter_count=40000, convergence_eps=3e-3):
+    def fit(self, parameters, iter_count=10000, convergence_eps=3e-3):
         """
         Fits the parameters for the given Mercer Gaussian process regression.
         i.e. runs the iteration that maximises the likelihood.

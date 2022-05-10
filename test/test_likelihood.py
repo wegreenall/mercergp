@@ -20,7 +20,7 @@ class TestLikelihoodMethods(unittest.TestCase):
         input_sample = D.Normal(0.0, 1.0).sample([self.sample_size])
         output_sample = torch.exp(input_sample)
 
-        betas = torch.ones(2 * self.order)
+        betas = torch.zeros(2 * self.order)
         gammas = torch.ones(2 * self.order)
         gammas.requires_grad = False
 
@@ -49,7 +49,7 @@ class TestLikelihoodMethods(unittest.TestCase):
         self.likelihood = MercerLikelihood(
             self.order,
             optimiser,
-            scheduler,
+            # scheduler,
             basis,
             input_sample,
             output_sample,
