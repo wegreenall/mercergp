@@ -52,7 +52,7 @@ class MercerLikelihood:
         self.output_sample = output_sample
         pass
 
-    def fit(self, parameters, iter_count=10000, convergence_eps=3e-3):
+    def fit(self, parameters, iter_count=40000, convergence_eps=3e-3):
         """
         Fits the parameters for the given Mercer Gaussian process regression.
         i.e. runs the iteration that maximises the likelihood.
@@ -84,7 +84,7 @@ class MercerLikelihood:
             elif i == iter_count - 1:
                 print("LIKELIHOOD HAS NOT CONVERGED...")
 
-            if i % 10 == 0:
+            if i % 20 == 0:
                 print("iteration:", i)
                 print(colored("params:", "blue"))
                 print_dict(parameters)
@@ -94,9 +94,9 @@ class MercerLikelihood:
                     parameters["gammas"].grad,
                 )
                 print(colored("log likelihood:", "red"), -this_loss)
-        plt.plot(gammas_for_plot[:i].detach().numpy())
-        plt.show()
-        plt.plot(losses[:i].detach().numpy())
+        # plt.plot(gammas_for_plot[:i].detach().numpy())
+        # plt.show()
+        plt.plot(-losses[:i].detach().numpy())
         plt.show()
         return
 
@@ -155,7 +155,6 @@ class MercerLikelihood:
         log_det_term = 0.5 * self._log_determinant(parameters, ksiksi)
 
         exp_term = self._exp_term(parameters, ksiksi_inverse)
-        # exp_term = torch.Tensor([0.0])
         return (log_det_term, exp_term)
 
     def _log_determinant(self, parameters, ksiksi) -> torch.Tensor:
