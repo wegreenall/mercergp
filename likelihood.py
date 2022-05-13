@@ -65,7 +65,7 @@ class MercerLikelihood:
             filter(lambda param: (param.requires_grad), parameters.values())
         )
         for i in range(iter_count):
-            gammas_for_plot[i, :] = parameters["gammas"]
+            # gammas_for_plot[i, :] = parameters["gammas"]
             this_loss = self.step_optimisation(parameters)
 
             # check that all the
@@ -90,10 +90,10 @@ class MercerLikelihood:
                 print(colored("params:", "blue"))
                 print_dict(parameters)
                 print("\n")
-                print(
-                    colored("param grad:", "green"),
-                    parameters["gammas"].grad,
-                )
+                # print(
+                # colored("param grad:", "green"),
+                # parameters["gammas"].grad,
+                # )
                 with torch.no_grad():
                     eigs = self._eigenvalues(parameters)
                     tplot.plot(eigs)
@@ -255,9 +255,10 @@ class MercerLikelihood:
         and then evaluating the basis.
         Return shape: N x m
         """
-        self.basis.set_gammas(
-            torch.cat((torch.Tensor([1.0]), parameters["gammas"][1:]))
-        )
+        if "gammas" in parameters:
+            self.basis.set_gammas(
+                torch.cat((torch.Tensor([1.0]), parameters["gammas"][1:]))
+            )
 
         return self.basis(self.input_sample)
 
