@@ -6,7 +6,7 @@ import math
 from ortho.basis_functions import Basis, OrthonormalBasis
 from ortho.orthopoly import OrthogonalBasisFunction
 import matplotlib.pyplot as plt
-from typing import Tuple
+from typing import Tuple, Callable
 
 torch.autograd.set_detect_anomaly(True)
 torch.set_printoptions(linewidth=300)
@@ -15,7 +15,7 @@ from framework.utils import print_dict
 import termplot as tplot
 
 
-class MercerLikelihood:
+class Likelihood:
     def __init__(
         self,
         order: int,
@@ -59,13 +59,11 @@ class MercerLikelihood:
         i.e. runs the iteration that maximises the likelihood.
         """
         convergence_criterion = False
-        gammas_for_plot = torch.zeros((iter_count, 2 * self.order))
         losses = torch.zeros(iter_count)
         optimisables = list(
             filter(lambda param: (param.requires_grad), parameters.values())
         )
         for i in range(iter_count):
-            # gammas_for_plot[i, :] = parameters["gammas"]
             this_loss = self.step_optimisation(parameters)
 
             # check that all the
@@ -100,8 +98,6 @@ class MercerLikelihood:
                 print("\n")
                 print(colored("log likelihood:", "red"), -this_loss)
 
-        # plt.plot(gammas_for_plot[:i].detach().numpy())
-        # plt.show()
         plt.plot(-losses[:i].detach().numpy())
         plt.show()
         return
@@ -255,11 +251,6 @@ class MercerLikelihood:
         and then evaluating the basis.
         Return shape: N x m
         """
-        if "gammas" in parameters:
-            self.basis.set_gammas(
-                torch.cat((torch.Tensor([1.0]), parameters["gammas"][1:]))
-            )
-
         return self.basis(self.input_sample)
 
     def _lambdainv(self, parameters):
@@ -271,6 +262,18 @@ class MercerLikelihood:
         eigs = self._eigenvalues(parameters)
         return torch.diag(1 / eigs)
 
+    def _eigenvalues(self, parameters) -> torch.Tensor:
+        """
+        Evalutes the eigenvalues as desired. Should be a given function that
+        depends on the parameters.
+        """
+        raise NotImplementedError(
+            r"Please use a subclass of this class so \
+        that the eigenvalues are explicitly calculated!"
+        )
+
+
+class FavardLikelihood(Likelihood):
     def _eigenvalues(self, parameters) -> torch.Tensor:
         """
         Returns the vector of eigenvalues, up to the order of the model.
@@ -298,6 +301,43 @@ class MercerLikelihood:
             breakpoint()
         assert (eigenvalues >= 0).all(), "eigenvalues are not all positive!"
         return eigenvalues
+
+    def _ksi(self, parameters):
+        """
+        Returns Ξ.
+
+        It does this by setting the parameters of the basis
+        and then evaluating the basis.
+        Return shape: N x m
+        """
+        if "gammas" in parameters:
+            self.basis.set_gammas(
+                torch.cat((torch.Tensor([1.0]), parameters["gammas"][1:]))
+            )
+        return super()._ksi(parameters)
+
+
+class MercerLikelihood(Likelihood):
+    def __init__(
+        self,
+        order: int,
+        optimiser: torch.optim.Optimizer,
+        basis: OrthonormalBasis,
+        input_sample: torch.Tensor,
+        output_sample: torch.Tensor,
+        eigenvalue_generator: Callable,
+    ):
+        super().__init__(order, optimiser, basis, input_sample, output_sample)
+        self.eigenvalue_generator = eigenvalue_generator
+
+    def _eigenvalues(self, parameters):
+        """
+        Calls the passed eigenvalue generator to construct the eigenvalues.
+
+        This allows for flexibility in constructing the eigenvalues for
+        the kernel.
+        """
+        return self.eigenvalue_generator(parameters)
 
 
 if __name__ == "__main__":
