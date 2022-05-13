@@ -168,7 +168,7 @@ class MercerGP:
         passed to the Mercer Gaussian process. This will be zeroes for no
         targets
 
-        That is, these are the poeterior mean coefficients related to
+        That is, these are the posterior mean coefficients related to
         (y-m)'(K(x, x) + σ^2I)^{-1}
         """
         interim_matrix = self.kernel.get_interim_matrix_inverse(self.x)

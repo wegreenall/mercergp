@@ -12,6 +12,7 @@ torch.autograd.set_detect_anomaly(True)
 torch.set_printoptions(linewidth=300)
 from termcolor import colored
 from framework.utils import print_dict
+import termplot as tplot
 
 
 class MercerLikelihood:
@@ -93,7 +94,12 @@ class MercerLikelihood:
                     colored("param grad:", "green"),
                     parameters["gammas"].grad,
                 )
+                with torch.no_grad():
+                    eigs = self._eigenvalues(parameters)
+                    tplot.plot(eigs)
+                print("\n")
                 print(colored("log likelihood:", "red"), -this_loss)
+
         # plt.plot(gammas_for_plot[:i].detach().numpy())
         # plt.show()
         plt.plot(-losses[:i].detach().numpy())
@@ -239,7 +245,6 @@ class MercerLikelihood:
                 ksi.t(),
             )
         )
-        # breakpoint()
         return term_1 - term_2
 
     def _ksi(self, parameters):
@@ -279,11 +284,15 @@ class MercerLikelihood:
 
         Return shape: m
         """
-        # print("EIGENVALUES!")
         p: int = parameters["eigenvalue_smoothness_parameter"]
         l: torch.Tensor = parameters["eigenvalue_scale_parameter"]  # shape: 1
         cn: torch.Tensor = parameters["shape_parameter"]  # shape: m
-        eigenvalues = l / (torch.linspace(1, self.order, self.order) + cn) ** p
+
+        eigenvalues = (
+            l
+            / (torch.linspace(1, self.order, self.order) + torch.pow(cn, 2))
+            ** p
+        )
         if (eigenvalues != eigenvalues).any():
             breakpoint()
         assert (eigenvalues >= 0).all(), "eigenvalues are not all positive!"
