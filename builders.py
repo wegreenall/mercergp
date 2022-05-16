@@ -4,7 +4,8 @@ from mercergp import MGP
 from ortho import basis_functions as bf
 
 
-def gaussian_kernel_mercer_gp(
+def build_mercer_gp(
+    basis: bf.Basis,
     ard_parameter: torch.Tensor,
     precision_parameter: torch.Tensor,
     noise_parameter: torch.Tensor,
@@ -23,9 +24,9 @@ def gaussian_kernel_mercer_gp(
     eigenvalues = bf.smooth_exponential_eigenvalues_fasshauer(
         order, kernel_params
     )
-    basis = bf.Basis(
-        bf.smooth_exponential_basis_fasshauer, dim, order, kernel_params
-    )
+    # basis = bf.Basis(
+    # bf.smooth_exponential_basis_fasshauer, dim, order, kernel_params
+    # )
     kernel = MGP.MercerKernel(order, basis, eigenvalues, kernel_params)
     mercer_gp = MGP.MercerGP(basis, order, dim, kernel)
     return mercer_gp

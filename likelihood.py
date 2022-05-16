@@ -20,7 +20,7 @@ class Likelihood:
         self,
         order: int,
         optimiser: torch.optim.Optimizer,
-        basis: OrthonormalBasis,
+        basis: Basis,
         input_sample: torch.Tensor,
         output_sample: torch.Tensor,
     ):
@@ -273,56 +273,12 @@ class Likelihood:
         )
 
 
-class FavardLikelihood(Likelihood):
-    def _eigenvalues(self, parameters) -> torch.Tensor:
-        """
-        Returns the vector of eigenvalues, up to the order of the model.
-
-        The current form of the eigenvalues will be taken to be the following,
-        for each n <= m:
-                     λ_n = λ / (n + c_n)^p
-
-        where: p denotes the smoothness parameter;
-               λ denotes a scale parameter;
-               c_n denotes a per-eigenvalue shape parameter.
-
-        Return shape: m
-        """
-        p: int = parameters["eigenvalue_smoothness_parameter"]
-        l: torch.Tensor = parameters["eigenvalue_scale_parameter"]  # shape: 1
-        cn: torch.Tensor = parameters["shape_parameter"]  # shape: m
-
-        eigenvalues = (
-            l
-            / (torch.linspace(1, self.order, self.order) + torch.pow(cn, 2))
-            ** p
-        )
-        if (eigenvalues != eigenvalues).any():
-            breakpoint()
-        assert (eigenvalues >= 0).all(), "eigenvalues are not all positive!"
-        return eigenvalues
-
-    def _ksi(self, parameters):
-        """
-        Returns Ξ.
-
-        It does this by setting the parameters of the basis
-        and then evaluating the basis.
-        Return shape: N x m
-        """
-        if "gammas" in parameters:
-            self.basis.set_gammas(
-                torch.cat((torch.Tensor([1.0]), parameters["gammas"][1:]))
-            )
-        return super()._ksi(parameters)
-
-
 class MercerLikelihood(Likelihood):
     def __init__(
         self,
         order: int,
         optimiser: torch.optim.Optimizer,
-        basis: OrthonormalBasis,
+        basis: Basis,
         input_sample: torch.Tensor,
         output_sample: torch.Tensor,
         eigenvalue_generator: Callable,
@@ -338,6 +294,50 @@ class MercerLikelihood(Likelihood):
         the kernel.
         """
         return self.eigenvalue_generator(parameters)
+
+
+class FavardLikelihood(MercerLikelihood):
+    # def _eigenvalues(self, parameters) -> torch.Tensor:
+    # """
+    # Returns the vector of eigenvalues, up to the order of the model.
+
+    # The current form of the eigenvalues will be taken to be the following,
+    # for each n <= m:
+    # λ_n = λ / (n + c_n)^p
+
+    # where: p denotes the smoothness parameter;
+    # λ denotes a scale parameter;
+    # c_n denotes a per-eigenvalue shape parameter.
+
+    # Return shape: m
+    # """
+    # p: int = parameters["eigenvalue_smoothness_parameter"]
+    # l: torch.Tensor = parameters["eigenvalue_scale_parameter"]  # shape: 1
+    # cn: torch.Tensor = parameters["shape_parameter"]  # shape: m
+
+    # eigenvalues = (
+    # l
+    # / (torch.linspace(1, self.order, self.order) + torch.pow(cn, 2))
+    # ** p
+    # )
+    # if (eigenvalues != eigenvalues).any():
+    # breakpoint()
+    # assert (eigenvalues >= 0).all(), "eigenvalues are not all positive!"
+    # return eigenvalues
+
+    def _ksi(self, parameters):
+        """
+        Returns Ξ.
+
+        It does this by setting the parameters of the basis
+        and then evaluating the basis.
+        Return shape: N x m
+        """
+        if "gammas" in parameters:
+            self.basis.set_gammas(
+                torch.cat((torch.Tensor([1.0]), parameters["gammas"][1:]))
+            )
+        return super()._ksi(parameters)
 
 
 if __name__ == "__main__":
