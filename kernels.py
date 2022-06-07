@@ -249,6 +249,8 @@ class NoiseKernel(StationaryKernel):
 
 class MercerKernel(StationaryKernel):
     required_kernel_arguments = {
+        "ard_parameter",
+        "precision_parameter",
         "noise_parameter",
     }
 

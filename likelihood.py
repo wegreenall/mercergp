@@ -296,34 +296,34 @@ class MercerLikelihood(Likelihood):
         return self.eigenvalue_generator(parameters)
 
 
-class FavardLikelihood(MercerLikelihood):
-    # def _eigenvalues(self, parameters) -> torch.Tensor:
-    # """
-    # Returns the vector of eigenvalues, up to the order of the model.
+class FavardLikelihood(Likelihood):
+    def _eigenvalues(self, parameters) -> torch.Tensor:
+        """
+        Returns the vector of eigenvalues, up to the order of the model.
 
-    # The current form of the eigenvalues will be taken to be the following,
-    # for each n <= m:
-    # λ_n = λ / (n + c_n)^p
+        The current form of the eigenvalues will be taken to be the following,
+        for each n <= m:
+        λ_n = λ / (n + c_n)^p
 
-    # where: p denotes the smoothness parameter;
-    # λ denotes a scale parameter;
-    # c_n denotes a per-eigenvalue shape parameter.
+        where: p denotes the smoothness parameter;
+        λ denotes a scale parameter;
+        c_n denotes a per-eigenvalue shape parameter.
 
-    # Return shape: m
-    # """
-    # p: int = parameters["eigenvalue_smoothness_parameter"]
-    # l: torch.Tensor = parameters["eigenvalue_scale_parameter"]  # shape: 1
-    # cn: torch.Tensor = parameters["shape_parameter"]  # shape: m
+        Return shape: m
+        """
+        p: int = parameters["eigenvalue_smoothness_parameter"]
+        l: torch.Tensor = parameters["eigenvalue_scale_parameter"]  # shape: 1
+        cn: torch.Tensor = parameters["shape_parameter"]  # shape: m
 
-    # eigenvalues = (
-    # l
-    # / (torch.linspace(1, self.order, self.order) + torch.pow(cn, 2))
-    # ** p
-    # )
-    # if (eigenvalues != eigenvalues).any():
-    # breakpoint()
-    # assert (eigenvalues >= 0).all(), "eigenvalues are not all positive!"
-    # return eigenvalues
+        eigenvalues = (
+            l
+            / (torch.linspace(1, self.order, self.order) + torch.pow(cn, 2))
+            ** p
+        )
+        if (eigenvalues != eigenvalues).any():
+            breakpoint()
+        assert (eigenvalues >= 0).all(), "eigenvalues are not all positive!"
+        return eigenvalues
 
     def _ksi(self, parameters):
         """

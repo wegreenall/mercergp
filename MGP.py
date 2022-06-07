@@ -360,6 +360,18 @@ class HermiteMercerGP(MercerGP):
             self.mean_function_derivative,
         )
 
+    def get_posterior_mean(self) -> HilbertSpaceElement:
+        """
+        Returns the posterior mean function.
+        """
+        return HermiteMercerGPSample(
+            self._calculate_posterior_coefficients(),
+            self.dim,
+            self.kernel.get_params(),
+            self.mean_function,
+            self.mean_function_derivative,
+        )
+
 
 if __name__ == "__main__":
     """ """
