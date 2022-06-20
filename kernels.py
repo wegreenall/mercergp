@@ -111,7 +111,9 @@ class StationaryKernel:
         return self.kernel_args
 
     @staticmethod
-    def get_data_differences(input_points, test_points):
+    def get_data_differences(
+        input_points: torch.Tensor, test_points: torch.Tensor
+    ) -> torch.Tensor:
         """
         Creates the 'data-differences' matrix made up of input points and test
         points, where input is x, test points are y;
@@ -138,7 +140,6 @@ class StationaryKernel:
         tp_shape = test_points.shape  # should be the data dimension
         ip_shape = input_points.shape  # should be the data dimension
         #    test_points = test_points.reshape([-1,1])
-        # breakpoint()
         input_points_repeated = input_points.repeat(tp_shape[0], 1, 1)
         test_points_repeated = test_points.repeat(ip_shape[0], 1, 1)
         # test_points_repeated_transpose = torch.einsum('ijk->jik',\
@@ -323,7 +324,6 @@ class MercerKernel(StationaryKernel):
         # test_ksi *= self.kernel_args["noise_parameter"]
 
         diag_l = torch.diag(self.eigenvalues)
-        # breakpoint()
         # intermediate_term = torch.mm(input_ksi, diag_l)
 
         # transposing because I appear to have the shape wrong
@@ -347,8 +347,9 @@ class MercerKernel(StationaryKernel):
         evaluate the basis functions
         """
 
-        if len(input_points.shape) >= 1:
-            input_points = input_points.squeeze()
+        if len(input_points.shape) > 1:
+            input_points = input_points.squeeze(1)
+
         degree = self.m  # i.e. the degree of the approximation
         ksi = torch.zeros([input_points.shape[0], degree])  # init tensor
 

@@ -24,6 +24,7 @@ def build_mercer_gp(
     eigenvalues = bf.smooth_exponential_eigenvalues_fasshauer(
         order, kernel_params
     )
+    # breakpoint()
     # basis = bf.Basis(
     # bf.smooth_exponential_basis_fasshauer, dim, order, kernel_params
     # )
