@@ -59,7 +59,7 @@ class Likelihood:
         i.e. runs the iteration that maximises the likelihood.
         """
         convergence_criterion = False
-        losses = torch.zeros(iter_count)
+        # losses = torch.zeros(iter_count)
         optimisables = list(
             filter(lambda param: (param.requires_grad), parameters.values())
         )
@@ -74,7 +74,7 @@ class Likelihood:
                 ]
             )
 
-            losses[i] = this_loss
+            # losses[i] = this_loss
             if convergence_criterion and i != iter_count:
                 # print(parameters["gammas"].grad)
                 print("LIKELIHOOD HAS CONVERGED...")
@@ -98,8 +98,8 @@ class Likelihood:
                 print("\n")
                 print(colored("log likelihood:", "red"), -this_loss)
 
-        plt.plot(-losses[:i].detach().numpy())
-        plt.show()
+        # plt.plot(-losses[:i].detach().numpy())
+        # plt.show()
         return
 
     def step_optimisation(self, parameters):
@@ -108,7 +108,7 @@ class Likelihood:
         """
         loss = self.evaluate_likelihood(parameters)
         self.optimiser.zero_grad()
-        loss.backward(retain_graph=False)
+        loss.backward()
         self.optimiser.step()
         return loss
 
@@ -185,7 +185,10 @@ class Likelihood:
         term_2 = torch.sum(torch.log(eigenvalues))
 
         term_3 = torch.log(
-            torch.linalg.det(self._lambdainv(parameters) + ksiksi)
+            torch.linalg.det(
+                self._lambdainv(parameters)
+                + 1 / parameters["noise_parameter"] * ksiksi
+            )
         )
         if (term_3 != term_3).any():
             print("The log determinant term has NaN")
@@ -208,7 +211,7 @@ class Likelihood:
         ksiksi = torch.einsum("ij, jk -> ik", ksi.t(), ksi)  # m x m
 
         try:
-            returnval = (1 / parameters["noise_parameter"]) * ksiksi
+            returnval = ksiksi
         except RuntimeError:
             breakpoint()
         if (ksiksi == math.inf).any():
