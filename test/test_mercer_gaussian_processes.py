@@ -1,14 +1,14 @@
 # test_mercer_gaussian_process.py
 import unittest
 import torch
-from basis_functions import (
+from ortho.basis_functions import (
     smooth_exponential_basis,
     smooth_exponential_eigenvalues,
     Basis,
 )
 
-from kernel import MercerKernel
-from MGP import MercerGP
+from mercergp.kernels import MercerKernel
+from mercergp.MGP import MercerGP
 
 
 class TestMercerGP(unittest.TestCase):

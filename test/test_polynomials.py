@@ -1,6 +1,10 @@
 import torch
 import unittest
-from polynomials import chebyshev_first, chebyshev_second, generalised_laguerre
+from ortho.polynomials import (
+    chebyshev_first,
+    chebyshev_second,
+    generalised_laguerre,
+)
 
 
 class TestChebyshevPolynomials(unittest.TestCase):

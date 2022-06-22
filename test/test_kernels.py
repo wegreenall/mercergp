@@ -2,7 +2,7 @@
 import unittest
 import torch
 
-import kernel as K
+import mercergp.kernels as K
 from ortho.basis_functions import (
     Basis,
     smooth_exponential_basis,
