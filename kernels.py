@@ -3,8 +3,10 @@
 # import opt_einsum as oe
 # import matplotlib
 import torch
+import torch.distributions as D
 
 import matplotlib.pyplot as plt
+import math
 
 from ortho.basis_functions import (
     Basis,
@@ -427,6 +429,60 @@ class MercerKernel(StationaryKernel):
         self.basis = basis
 
 
+class RandomFourierFeaturesKernel(StationaryKernel):
+    def __init__(self, feature_count, sampling_distribution, dim):
+        """Sets up the Random Fourier feature kernel;
+        it pre-generates ω and b.
+        """
+        self.sampling_distribution = sampling_distribution
+        self.dim = dim
+        self.feature_count = feature_count
+        self.b_sample_shape = torch.Size([feature_count])
+        self.w_sample_shape = torch.Size([feature_count, dim])
+
+        self.b_dist = D.Uniform(0.0, 2 * math.pi)
+        self.w_dist = sampling_distribution
+        self._generate_kernel()
+
+    def _generate_kernel(self):
+        """
+        Generates the ω and b vectors for this specific kernel.
+        """
+        self.w = self.w_dist.sample(self.w_sample_shape).squeeze(2)
+        self.b = self.b_dist.sample(self.b_sample_shape)
+
+    def __call__(self, input_points, test_points):
+        """
+        Evaluates the kernel.
+
+        input shape: input_points: [N, d]
+                     test_points:  [N, d]
+
+        w shape: [d,  1]
+        """
+        n = input_points.shape[0]
+
+        b = self.b.repeat(n, 1).t()  # R * n
+
+        z = math.sqrt(2.0 / self.feature_count) * torch.cos(
+            self.w @ input_points.t() + b
+        )
+
+        zz = z.t() @ z
+        # plt.imshow(zz)
+        # plt.show()
+
+        # breakpoint()
+        return zz
+
+
+class SmoothExponentialRFFKernel(RandomFourierFeaturesKernel):
+    def __init__(self, feature_count, dim):
+        super().__init__(
+            feature_count, D.Normal(torch.zeros(dim), torch.ones(dim)), dim
+        )
+
+
 # Composite/exotic kernels
 class CompositeKernel(StationaryKernel):
     def __init__(self, kernels):
@@ -473,33 +529,43 @@ class CompositeKernel(StationaryKernel):
 
 
 if __name__ == "__main__":
+    test_rff = True
+    test_chebys = False
+    if test_chebys:
+        # generate a kernel and show it as a heatmap
+        l_se = torch.Tensor([[2]])
+        sigma_se = torch.Tensor([3])
+        sigma_e = torch.Tensor([1])
+        epsilon = torch.Tensor([1])
+        lb = 0.0
+        ub = 10.0
+        chebyshev_args = {
+            "upper_bound": torch.tensor(ub, dtype=torch.float32),
+            "lower_bound": torch.tensor(lb, dtype=torch.float32),
+        }
 
-    # generate a kernel and show it as a heatmap
-    l_se = torch.Tensor([[2]])
-    sigma_se = torch.Tensor([3])
-    sigma_e = torch.Tensor([1])
-    epsilon = torch.Tensor([1])
-    lb = 0.0
-    ub = 10.0
-    chebyshev_args = {
-        "upper_bound": torch.tensor(ub, dtype=torch.float32),
-        "lower_bound": torch.tensor(lb, dtype=torch.float32),
-    }
+        mercer_args = {
+            "ard_parameter": l_se,
+            "variance_parameter": sigma_se,
+            "noise_parameter": sigma_e,
+            "precision_parameter": epsilon,
+        }
 
-    mercer_args = {
-        "ard_parameter": l_se,
-        "variance_parameter": sigma_se,
-        "noise_parameter": sigma_e,
-        "precision_parameter": epsilon,
-    }
+        test_points = torch.linspace(lb + 0.01, ub - 0.01, 100)
+        for order in range(5, 75, 20):
+            basis = Basis(standard_chebyshev_basis, 1, order, chebyshev_args)
+            eigenvalues = smooth_exponential_eigenvalues_fasshauer(
+                order, mercer_args
+            )
+            kernel = MercerKernel(order, basis, eigenvalues, mercer_args)
+            result = kernel(test_points, test_points)
+            plt.imshow(result, cmap="viridis")
+            plt.show()
 
-    test_points = torch.linspace(lb + 0.01, ub - 0.01, 100)
-    for order in range(5, 75, 20):
-        basis = Basis(standard_chebyshev_basis, 1, order, chebyshev_args)
-        eigenvalues = smooth_exponential_eigenvalues_fasshauer(
-            order, mercer_args
-        )
-        kernel = MercerKernel(order, basis, eigenvalues, mercer_args)
-        result = kernel(test_points, test_points)
-        plt.imshow(result, cmap="viridis")
+    if test_rff:
+        rff_kernel = SmoothExponentialRFFKernel(10000, 1)
+        x_axis = torch.linspace(-3, 3, 500).unsqueeze(1)
+        kernel_matrix = rff_kernel(x_axis, x_axis.t())
+        plt.imshow(kernel_matrix)
+        plt.colorbar()
         plt.show()
