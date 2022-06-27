@@ -45,10 +45,11 @@ class SmoothExponentialFasshauer(EigenvalueGenerator):
     required_parameters = ["ard_parameter", "precision_parameter"]
 
     def __call__(self, parameters: dict) -> torch.Tensor:
+        # breakpoint()
         return smooth_exponential_eigenvalues_fasshauer(self.order, parameters)
 
 
-class Polynomial(EigenvalueGenerator):
+class PolynomialEigenvalues(EigenvalueGenerator):
     required_params = ["scale", "shape", "degree"]
     """
     param scale:

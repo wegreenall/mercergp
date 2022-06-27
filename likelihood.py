@@ -53,7 +53,7 @@ class Likelihood:
         self.output_sample = output_sample
         pass
 
-    def fit(self, parameters, iter_count=40000, convergence_eps=3e-3):
+    def fit(self, parameters, iter_count=60000, convergence_eps=3e-3):
         """
         Fits the parameters for the given Mercer Gaussian process regression.
         i.e. runs the iteration that maximises the likelihood.
@@ -61,7 +61,11 @@ class Likelihood:
         convergence_criterion = False
         # losses = torch.zeros(iter_count)
         optimisables = list(
-            filter(lambda param: (param.requires_grad), parameters.values())
+            filter(
+                lambda param: (isinstance(param, torch.Tensor))
+                and (param.requires_grad),
+                parameters.values(),
+            )
         )
         for i in range(iter_count):
             this_loss = self.step_optimisation(parameters)
@@ -187,7 +191,7 @@ class Likelihood:
         term_3 = torch.log(
             torch.linalg.det(
                 self._lambdainv(parameters)
-                + 1 / parameters["noise_parameter"] * ksiksi
+                + (1 / parameters["noise_parameter"]) * ksiksi
             )
         )
         if (term_3 != term_3).any():
