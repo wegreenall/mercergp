@@ -469,10 +469,7 @@ class RandomFourierFeaturesKernel(StationaryKernel):
         )
 
         zz = z.t() @ z
-        # plt.imshow(zz)
-        # plt.show()
-
-        # breakpoint()
+        breakpoint()
         return zz
 
 
@@ -563,7 +560,7 @@ if __name__ == "__main__":
             plt.show()
 
     if test_rff:
-        rff_kernel = SmoothExponentialRFFKernel(10000, 1)
+        rff_kernel = SmoothExponentialRFFKernel(5000, 1)
         x_axis = torch.linspace(-3, 3, 500).unsqueeze(1)
         kernel_matrix = rff_kernel(x_axis, x_axis.t())
         plt.imshow(kernel_matrix)
