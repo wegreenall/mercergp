@@ -429,7 +429,7 @@ class MercerKernel(StationaryKernel):
         self.basis = basis
 
 
-class RandomFourierFeaturesKernel(StationaryKernel):
+class RandomFourierFeaturesKernel(MercerKernel):
     def __init__(self, feature_count, sampling_distribution, dim):
         """Sets up the Random Fourier feature kernel;
         it pre-generates ω and b.

@@ -5,8 +5,9 @@ from ortho.basis_functions import (
     smooth_exponential_basis_fasshauer,
     smooth_exponential_eigenvalues_fasshauer,
     Basis,
+    RandomFourierFeatureBasis,
 )
-from mercergp.kernels import MercerKernel
+from mercergp.kernels import MercerKernel, RandomFourierFeaturesKernel
 import matplotlib.pyplot as plt
 
 
@@ -195,8 +196,10 @@ class MercerGP:
         # variance = torch.diag(self.kernel.get_eigenvalues())
 
         if (variance != torch.abs(variance)).all():
-            breakpoint()
-        # variance += 0.001 * torch.eye(variance.shape[0])
+            raise ValueError(
+                "Error: some elements of the covariance matrix are negative."
+            )
+
         normal_rv = (
             torch.distributions.MultivariateNormal(
                 loc=mean, covariance_matrix=variance
@@ -209,6 +212,37 @@ class MercerGP:
     def set_posterior_coefficients(self, coefficients):
         self.posterior_coefficients = coefficients
 
+
+class RFFGP(MercerGP):
+     """
+    A class representing a Gaussian process
+    using Random Fourier Features.
+    """
+    def __init__(
+        self,
+        order,
+        dim,
+        spectral_distribution,
+        mean_function=lambda x: torch.zeros(x.shape),
+        ):
+        basis = RandomFourierFeatureBasis(dim, order)
+        kernel = RandomFourierFeaturesKernel(order, spectral_distribution, dim)
+        super().__init__(basis, order, dim, kernel, mean_function)
+        return
+
+    def _get_sample_coefficients(self):
+        """
+        Generates the sample coefficients for a given sample gp. """
+        variance = torch.eye(self.order)
+        normal_rv = torch.distributions.Normal(
+               loc=torch.zeros(self.order), scale = torch.ones(self.order))
+               .sample()
+               .squeeze()
+        return normal_rv
+
+    
+
+       
 
 class MercerGPSample(HilbertSpaceElement):
     """
