@@ -4,7 +4,10 @@ from ortho.orthopoly import (
     OrthogonalBasisFunction,
     SymmetricOrthonormalPolynomial,
 )
-from mercergp.eigenvalue_gen import Polynomial, SmoothExponentialFasshauer
+from mercergp.eigenvalue_gen import (
+    PolynomialEigenvalues,
+    SmoothExponentialFasshauer,
+)
 from ortho.measure import MaximalEntropyDensity
 from mercergp.likelihood import MercerLikelihood, FavardLikelihood
 
@@ -18,7 +21,7 @@ class TestPolynomialEigenvalueGenerator(unittest.TestCase):
         self.shape = torch.linspace(1.0, 0.0, self.order)
         self.degree = 4.0
 
-        self.eigenvalue_generator = Polynomial(self.order)
+        self.eigenvalue_generator = PolynomialEigenvalues(self.order)
         pass
 
     def test_shape(self):
