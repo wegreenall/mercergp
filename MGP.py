@@ -1,4 +1,5 @@
 import torch
+import torch.distributions as D
 import math
 
 from ortho.basis_functions import (
@@ -243,6 +244,15 @@ class RFFGP(MercerGP):
             .squeeze()
         )
         return normal_rv
+
+
+class SmoothExponentialRFFGP(RFFGP):
+    def __init__(
+        self, order, dim, mean_function=lambda x: torch.zeros(x.shape)
+    ):
+        spectral_distribution = D.Normal(0.0, 1.0)
+        super().__init__(order, dim, spectral_distribution, mean_function)
+        return
 
 
 class MercerGPSample(HilbertSpaceElement):

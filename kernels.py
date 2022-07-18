@@ -448,7 +448,7 @@ class RandomFourierFeaturesKernel(MercerKernel):
         """
         Generates the ω and b vectors for this specific kernel.
         """
-        self.w = self.w_dist.sample(self.w_sample_shape).squeeze(2)
+        self.w = self.w_dist.sample(self.w_sample_shape)
         self.b = self.b_dist.sample(self.b_sample_shape)
 
     def __call__(self, input_points, test_points):
@@ -469,7 +469,7 @@ class RandomFourierFeaturesKernel(MercerKernel):
         )
 
         zz = z.t() @ z
-        breakpoint()
+        # breakpoint()
         return zz
 
 
@@ -560,7 +560,7 @@ if __name__ == "__main__":
             plt.show()
 
     if test_rff:
-        rff_kernel = SmoothExponentialRFFKernel(5000, 1)
+        rff_kernel = SmoothExponentialRFFKernel(1000, 1)
         x_axis = torch.linspace(-3, 3, 500).unsqueeze(1)
         kernel_matrix = rff_kernel(x_axis, x_axis.t())
         plt.imshow(kernel_matrix)

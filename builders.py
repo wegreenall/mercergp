@@ -45,14 +45,13 @@ def build_mercer_gp(
     parameters: dict,
     order: int,
     input_sample: torch.Tensor,
-    output_sample: torch.Tensor,
     dim=1,
 ):
     breakpoint()
     basis = bf.Basis(
         bf.smooth_exponential_basis_fasshauer, dim, order, parameters
     )
-    breakpoint()
+    # breakpoint()
     eigenvalue_generator = SmoothExponentialFasshauer(order)
     eigenvalues = eigenvalue_generator(parameters)
 
