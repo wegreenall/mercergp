@@ -214,17 +214,18 @@ class MercerGP:
 
 
 class RFFGP(MercerGP):
-     """
+    """
     A class representing a Gaussian process
     using Random Fourier Features.
     """
+
     def __init__(
         self,
         order,
         dim,
         spectral_distribution,
         mean_function=lambda x: torch.zeros(x.shape),
-        ):
+    ):
         basis = RandomFourierFeatureBasis(dim, order)
         kernel = RandomFourierFeaturesKernel(order, spectral_distribution, dim)
         super().__init__(basis, order, dim, kernel, mean_function)
@@ -232,17 +233,17 @@ class RFFGP(MercerGP):
 
     def _get_sample_coefficients(self):
         """
-        Generates the sample coefficients for a given sample gp. """
+        Generates the sample coefficients for a given sample gp."""
         variance = torch.eye(self.order)
-        normal_rv = torch.distributions.Normal(
-               loc=torch.zeros(self.order), scale = torch.ones(self.order))
-               .sample()
-               .squeeze()
+        normal_rv = (
+            torch.distributions.Normal(
+                loc=torch.zeros(self.order), scale=torch.ones(self.order)
+            )
+            .sample()
+            .squeeze()
+        )
         return normal_rv
 
-    
-
-       
 
 class MercerGPSample(HilbertSpaceElement):
     """
