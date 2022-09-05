@@ -10,7 +10,7 @@ import math
 
 from ortho.basis_functions import (
     Basis,
-    # smooth_exponential_basis,
+    smooth_exponential_basis_fasshauer,
     smooth_exponential_eigenvalues_fasshauer,
     standard_chebyshev_basis,
 )
@@ -123,6 +123,8 @@ class StationaryKernel:
         |x2-y1  x2-y2 x2-y3 ... |
         |   .                   |
         |   :                   |
+
+        This is the precursor to constructing a distance (Gram) matrix.
 
         This allows one to make:the input-point (variance-covariance) block of
         the kernel; the input-test point (covariance) block; and the test-point
@@ -430,11 +432,22 @@ class MercerKernel(StationaryKernel):
 
 
 class FasshauerKernel(MercerKernel):
-    """ """
+    """
+    An implementation of the Fasshauer-basis Mercer kernel for rapid
+    prototyping.
 
-    def __init__(
-        order,
-    ):
+    I assume in this case that I am working in 1 dimension.
+    """
+
+    def __init__(self, order, kernel_args):
+        dimension = 1
+        basis = Basis(
+            smooth_exponential_basis_fasshauer, dimension, order, kernel_args
+        )
+        eigenvalues = smooth_exponential_eigenvalues_fasshauer(
+            order, kernel_args
+        )
+        super().__init__(order, basis, eigenvalues, kernel_args)
         return
 
 
