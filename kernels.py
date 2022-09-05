@@ -257,7 +257,7 @@ class MercerKernel(StationaryKernel):
         "noise_parameter",
     }
 
-    def __init__(self, m, basis: Basis, eigenvalues, kernel_args):
+    def __init__(self, order, basis: Basis, eigenvalues, kernel_args):
         """
         Initialises a Mercer Kernel approximation.
 
@@ -280,7 +280,7 @@ class MercerKernel(StationaryKernel):
                        kernel version
         """
 
-        self.m = m  # the degree of the approximation
+        self.order = order  # the degree of the approximation
 
         # basis_function expected to have signature:
         # (x:torch.Tensor, degree: int, basis_args: dict)
@@ -352,7 +352,7 @@ class MercerKernel(StationaryKernel):
         if len(input_points.shape) > 1:
             input_points = input_points.squeeze(1)
 
-        degree = self.m  # i.e. the degree of the approximation
+        degree = self.order  # i.e. the degree of the approximation
         ksi = torch.zeros([input_points.shape[0], degree])  # init tensor
 
         # for deg in range(degree):
@@ -427,6 +427,15 @@ class MercerKernel(StationaryKernel):
     def update_params(self, basis, eigenvalues):
         self.set_eigenvalues(eigenvalues)
         self.basis = basis
+
+
+class FasshauerKernel(MercerKernel):
+    """ """
+
+    def __init__(
+        order,
+    ):
+        return
 
 
 class RandomFourierFeaturesKernel(MercerKernel):
