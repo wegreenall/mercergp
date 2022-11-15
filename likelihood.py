@@ -67,6 +67,9 @@ class Likelihood:
                 parameters.values(),
             )
         )
+        if len(optimisables) == 0:
+            raise ValueError("No parameters require gradient.")
+
         for i in range(iter_count):
             this_loss = self.step_optimisation(parameters)
 
