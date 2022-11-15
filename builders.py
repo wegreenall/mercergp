@@ -47,11 +47,15 @@ def build_mercer_gp(
     input_sample: torch.Tensor,
     dim=1,
 ):
-    breakpoint()
+    """
+    parameters requires in params:
+        - ard_parameter,
+        - precision parameter,
+        - noise_parameter
+    """
     basis = bf.Basis(
         bf.smooth_exponential_basis_fasshauer, dim, order, parameters
     )
-    # breakpoint()
     eigenvalue_generator = SmoothExponentialFasshauer(order)
     eigenvalues = eigenvalue_generator(parameters)
 
