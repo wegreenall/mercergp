@@ -453,15 +453,25 @@ class FasshauerKernel(MercerKernel):
 
 
 class RandomFourierFeaturesKernel(MercerKernel):
-    def __init__(self, feature_count, sampling_distribution, dim):
+    required_kernel_arguments = {"noise_parameter", "variance_parameter"}
+
+    def __init__(
+        self,
+        feature_count: int,
+        sampling_distribution: torch.distributions.Distribution,
+        dim: int,
+        kernel_args: dict,
+    ):
         """Sets up the Random Fourier feature kernel;
         it pre-generates ω and b.
         """
         self.sampling_distribution = sampling_distribution
         self.dim = dim
+        self.order = feature_count
         self.feature_count = feature_count
         self.b_sample_shape = torch.Size([feature_count])
         self.w_sample_shape = torch.Size([feature_count, dim])
+        self.kernel_args = kernel_args
 
         self.b_dist = D.Uniform(0.0, 2 * math.pi)
         self.w_dist = sampling_distribution
@@ -482,18 +492,43 @@ class RandomFourierFeaturesKernel(MercerKernel):
                      test_points:  [N, d]
 
         w shape: [d,  1]
+        b shape: [d,  1]
+
+        output shape: [N, N]
+
         """
-        n = input_points.shape[0]
-
-        b = self.b.repeat(n, 1).t()  # R * n
-
-        z = math.sqrt(2.0 / self.feature_count) * torch.cos(
-            self.w @ input_points.t() + b
-        )
-
-        zz = z.t() @ z
-        # breakpoint()
+        z = self.basis(input_points)
+        y = self.basis(test_points)
+        zz = z.t() @ y
         return zz
+
+    def basis(self, input_points):
+        """
+        Evaluates the features basis at the input points.
+
+        input_shape:  [N, 1]
+        output_shape: [N, d]
+        """
+
+        n = input_points.shape[0]
+        b = self.b.repeat(n, 1).t()  # R * n
+        z = math.sqrt(2.0 / self.feature_count) * torch.cos(
+            (self.w @ input_points.t()).squeeze() + b
+        )
+        return z
+
+    def get_ksi(self, input_points):
+        return self.basis(input_points)
+
+    def kernel_inverse(self, input_points):
+        return torch.inverse(self(input_points, input_points))
+
+    def get_interim_matrix_inverse(self, input_points):
+        return torch.inverse(
+            self(input_points, input_points)
+            + self.kernel_args["noise_parameter"]
+            * torch.eye(input_points.shape[0])
+        )
 
 
 class SmoothExponentialRFFKernel(RandomFourierFeaturesKernel):
@@ -583,9 +618,11 @@ if __name__ == "__main__":
             plt.show()
 
     if test_rff:
-        rff_kernel = SmoothExponentialRFFKernel(1000, 1)
+        order = 1000
+        order = 1000
+        rff_kernel = SmoothExponentialRFFKernel(order, 1)
         x_axis = torch.linspace(-3, 3, 500).unsqueeze(1)
-        kernel_matrix = rff_kernel(x_axis, x_axis.t())
+        kernel_matrix = rff_kernel(x_axis, x_axis)
         plt.imshow(kernel_matrix)
         plt.colorbar()
         plt.show()

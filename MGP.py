@@ -137,6 +137,12 @@ class MercerGP:
         outputs the data added to the MercerGP minus the mean function
         at the inputs, for correct construction of the coefficients.
         """
+        print("Self y shape:", self.y.shape)
+        print(
+            "Self mean function shape shape:",
+            self.mean_function(self.get_inputs()).shape,
+        )
+        breakpoint()
         return self.y - self.mean_function(self.get_inputs())
 
     def get_posterior_mean(self) -> HilbertSpaceElement:
@@ -213,12 +219,18 @@ class MercerGP:
         (y-m)'(K(x, x) + σ^2I)^{-1}
         """
         interim_matrix = self.kernel.get_interim_matrix_inverse(self.x)
-        ksi = self.kernel.get_ksi(self.x)
+        print("interim_matrix shape:", interim_matrix.shape)
 
+        ksi = self.kernel.get_ksi(self.x)
+        print("ksi shape:", ksi.shape)
         posterior_coefficients = torch.einsum(
             "jm, mn -> jn", interim_matrix, ksi.t()
         )
         these_outputs = self.get_outputs()
+        # print("these outputs:", these_outputs)
+        print("these outputs shape:", these_outputs.shape)
+        print("\n")
+        # breakpoint()
         result = torch.einsum(
             "i..., ji -> j", these_outputs, posterior_coefficients
         )
@@ -261,13 +273,19 @@ class RFFGP(MercerGP):
 
     def __init__(
         self,
-        order,
-        dim,
-        spectral_distribution,
+        order: int,
+        dim: int,
+        spectral_distribution: torch.distributions.Distribution,
         mean_function=lambda x: torch.zeros(x.shape),
     ):
+        kernel_args = {
+            "noise_parameter": torch.Tensor([0.0]),
+            "variance_parameter": torch.Tensor([1.0]),
+        }
         basis = RandomFourierFeatureBasis(dim, order)
-        kernel = RandomFourierFeaturesKernel(order, spectral_distribution, dim)
+        kernel = RandomFourierFeaturesKernel(
+            order, spectral_distribution, dim, kernel_args
+        )
         super().__init__(basis, order, dim, kernel, mean_function)
         return
 
@@ -286,8 +304,16 @@ class RFFGP(MercerGP):
 
 
 class SmoothExponentialRFFGP(RFFGP):
+    """
+    A class representing a Gaussian process using Random Fourier Features
+    for the smooth exponential kernel.
+    """
+
     def __init__(
-        self, order, dim, mean_function=lambda x: torch.zeros(x.shape)
+        self,
+        order: int,
+        dim: int,
+        mean_function=lambda x: torch.zeros(x.shape),
     ):
         spectral_distribution = D.Normal(0.0, 1.0)
         super().__init__(order, dim, spectral_distribution, mean_function)
@@ -531,4 +557,5 @@ if __name__ == "__main__":
     plt.show()
 
     predictive_density = mercer_gp.get_predictive_density(test_points)
-    breakpoint()
+    print("Predictive density:", predictive_density)
+    # breakpoint()
