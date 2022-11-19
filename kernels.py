@@ -368,9 +368,13 @@ class MercerKernel(StationaryKernel):
 
     def kernel_inverse(self, input_points: torch.Tensor):
         """
-        use the Sherman-Morrison-Woodbury Formula to get the matrix inverse
-        given the kernel matrix
+        Returns the inverse of the kernel Gram matrix evaluated at
+        tensor input_points,
+        using the Sherman-Morrison-Woodbury Formula to get the matrix inverse.
+
         The matrix inverse is built as σ^-2(Ι - Ξ(σ^2 Λ^-1  + Ξ'Ξ)^(-1)Ξ')
+        where Ξ is an Nxm feature matrix, and Λ is an mxm diagonal matrix
+        of operator eigenvalues.
         """
         sigma_e = self.kernel_args["noise_parameter"]  # get noise parameter
 
@@ -379,14 +383,11 @@ class MercerKernel(StationaryKernel):
         ksi = self.get_ksi(input_points)  # Ξ
         interim_inv = self.get_interim_matrix_inverse(input_points)
 
-        # 1/σ^2 (Ι - Ξ(Λ^-1 + Ξ'Ξ)Ξ')
+        # 1/σ^2 (Ι - Ξ(σ^2 Λ^-1 + Ξ'Ξ)Ξ')
         kernel_inv = (
             1
             / (sigma_e ** 2)
-            * (
-                torch.eye(input_points.shape[0])
-                - torch.mm(torch.mm(ksi, interim_inv), ksi.T)
-            )
+            * (torch.eye(input_points.shape[0]) - ksi @ interim_inv @ ksi.t())
         )
         return kernel_inv
 

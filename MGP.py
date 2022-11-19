@@ -163,6 +163,45 @@ class MercerGP:
             self.mean_function,
         )
 
+    def get_predictive_density(
+        self, test_points: torch.Tensor
+    ) -> D.Distribution:
+        """
+        Returns the predictive density of the Mercer Gaussian process
+        evaluated at the inputs "input".
+
+        The predictive density of a Gaussian process is given by:
+
+        THIS USES THE DIAGONAL OF THE MULTIVARIATE NORMAL
+        THAT IS IMPLIED BY K(X*, X*) - K(X*, X)(K+σ^2I)^(-1)K(X, X*)
+
+        NEED TO DOUBLE CHECK THAT THIS IS CORRECT
+        """
+        # calculate the mean
+        posterior_predictive_mean = self.get_posterior_mean()
+        posterior_predictive_mean_evaluation = posterior_predictive_mean(
+            test_points
+        )
+
+        # now calculate the variance
+        posterior_predictive_variance = self.kernel(
+            test_points, test_points
+        ) - self.kernel(
+            test_points, self.get_inputs()
+        ) @ self.kernel.kernel_inverse(
+            self.get_inputs()
+        ) @ self.kernel(
+            self.get_inputs(), test_points
+        )
+
+        # add jitter for positive definiteness
+        posterior_predictive_variance += 0.00001 * torch.eye(len(test_points))
+
+        return D.Normal(
+            posterior_predictive_mean_evaluation,
+            torch.diag(posterior_predictive_variance),
+        )
+
     def _calculate_posterior_coefficients(self) -> torch.Tensor:
         """
         Returns the non-random coefficients for the posterior mean according
@@ -490,3 +529,6 @@ if __name__ == "__main__":
     # input/output points
     plt.scatter(inputs, data_points, marker="+")
     plt.show()
+
+    predictive_density = mercer_gp.get_predictive_density(test_points)
+    breakpoint()
