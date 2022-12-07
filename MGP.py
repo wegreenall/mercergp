@@ -1,27 +1,30 @@
 import torch
 import torch.distributions as D
 import math
+from typing import Callable
 
 from ortho.basis_functions import (
     smooth_exponential_basis_fasshauer,
     smooth_exponential_eigenvalues_fasshauer,
     Basis,
+    CompositeBasis,
     RandomFourierFeatureBasis,
 )
+from mercergp.posterior_sampling import NonStationarySpectralDistribution
 from mercergp.kernels import MercerKernel, RandomFourierFeaturesKernel
 import matplotlib.pyplot as plt
 
 
 class HilbertSpaceElement:
     """
-    A class representing an element of  Hilbert space.
+    A class representing an element of a Hilbert space.
     That is, for a given basis and set of coefficients, instances of this class
     represent functions that belong to the corresponding Hilbert space.
 
     This is useful when producing Mercer Gaussian Processes.
     """
 
-    def __init__(self, basis, coefficients: torch.Tensor):
+    def __init__(self, basis: Callable, coefficients: torch.Tensor):
         self.basis = basis
         self.coefficients = coefficients
         self.order = len(coefficients)
@@ -69,6 +72,15 @@ class MercerGP:
         : param kernel: a MercerKernel instance
         : param mean_function: a callable representing the
                             prior mean function for the GP.
+        : param raw_posterior_sample: a boolean.
+            If false,
+            posterior samples suffer variance decay but are "pure" in the
+            sense that they strictly follow the Karhunen-Loeve representation
+            of a Gaussian process.
+            If true,
+            posterior samples are built via the combination random features
+            and posterior component method hinted at in Wilson 2020.
+
 
         Note on the mean_function callable:
         Because it is feasible that the mean function might not be expressed
@@ -137,12 +149,6 @@ class MercerGP:
         outputs the data added to the MercerGP minus the mean function
         at the inputs, for correct construction of the coefficients.
         """
-        print("Self y shape:", self.y.shape)
-        print(
-            "Self mean function shape shape:",
-            self.mean_function(self.get_inputs()).shape,
-        )
-        breakpoint()
         return self.y - self.mean_function(self.get_inputs())
 
     def get_posterior_mean(self) -> HilbertSpaceElement:
@@ -222,15 +228,14 @@ class MercerGP:
         print("interim_matrix shape:", interim_matrix.shape)
 
         ksi = self.kernel.get_ksi(self.x)
-        print("ksi shape:", ksi.shape)
+        # print("ksi shape:", ksi.shape)
         posterior_coefficients = torch.einsum(
             "jm, mn -> jn", interim_matrix, ksi.t()
         )
         these_outputs = self.get_outputs()
         # print("these outputs:", these_outputs)
-        print("these outputs shape:", these_outputs.shape)
-        print("\n")
-        # breakpoint()
+        # print("these outputs shape:", these_outputs.shape)
+        # print("\n")
         result = torch.einsum(
             "i..., ji -> j", these_outputs, posterior_coefficients
         )
@@ -265,10 +270,57 @@ class MercerGP:
         self.posterior_coefficients = coefficients
 
 
+class MercerGPFourierPosterior(MercerGP):
+    """
+    Following Wilson et al (2020), this allows us to construct the posterior
+    with a prior component using a Cosine basis and a posterior component
+    using a Mercer (orthogonal Favard feature) basis. This combines the two
+    to get a better representation of the prior and avoiding the variance decay
+    problem.
+    """
+
+    def __init__(
+        self,
+        basis: Basis,
+        order: int,
+        dim: int,
+        kernel: MercerKernel,
+        marginal_distribution_1: D.Distribution,  # first spectral frequency
+        marginal_distribution_2: D.Distribution,  # second spectral frequency
+        spectral_distribution: D.Distribution,
+        mean_function=lambda x: torch.zeros(x.shape),
+    ):
+        """
+        Initialises the MercerGPFourierPosterior class.
+        Key to this is the initialisation under the superclass to
+        produce a standard Mercer posterior component,
+        and then a RFF GP for modelling the
+        """
+        super().__init__(basis, order, dim, kernel, mean_function)
+        self.rffgp = NonStationaryRFFGP(
+            basis
+            order,
+            dim,
+            # spectral_distribution,
+            # marginal_distribution_1,  # first spectral frequency marginal
+            # marginal_distribution_2,  # second spectral frequency marginal
+            mean_function=lambda x: torch.zeros(x.shape),
+        )
+
+    def gen_gp(self, x):
+        # i.e., we are generating a Wilson(2020) style prior- and posterior
+        # decomposition
+        prior_component = self.rffgp.gen_gp()  # this should be f + ig
+        posterior_component = MercerGPSample(
+            self.basis, self.posterior_coefficients, self.mean_function
+        )
+        gp_sample = PosteriorGPSample(prior_component, posterior_component)
+        return gp_sample
+
+
 class RFFGP(MercerGP):
     """
-    A class representing a Gaussian process
-    using Random Fourier Features.
+    A class representing a Gaussian process using Random Fourier Features.
     """
 
     def __init__(
@@ -301,6 +353,79 @@ class RFFGP(MercerGP):
             .squeeze()
         )
         return normal_rv
+
+
+class NonStationaryRFFGP(RFFGP):
+    """
+    A Gaussian process based on the Random Fourier Features approach
+    but with a non-stationary kernel.
+    In order to build Fourier features for a non-stationary kernel,
+    it is necessary to utilise Yaglom's theorem in tandem with a
+    complex Gaussian process to get the right covariance.
+    """
+
+    def __init__(
+        self,
+        basis: RandomFourierFeatureBasis,
+        order: int,
+        dim: int,
+        # spectral_distribution: torch.distributions.Distribution,
+        # marginal_distribution_1: D.Distribution,  # first spectral frequency marginal distribution
+        # marginal_distribution_2: D.Distribution,  # second spectral frequency marginal distribution
+        mean_function=lambda x: torch.zeros(x.shape),
+    ):
+        # standard GP model parameters
+        self.order = order
+        self.dim = dim
+        self.mean_function = mean_function
+        self.basis = basis
+
+        if not isinstance(
+            self.basis.w_dist, NonStationarySpectralDistribution
+        ):
+            raise TypeError(
+                "self.basis.w_dist should be a NonStationarySpectralDistribution"
+            )
+        # the 2-d spectral distribution from Yaglom's theorem in tandem with
+        # the marginals are necessary to produce the right covariance.
+
+    def gen_gp(self):
+        # full_basis = CompositeBasis(self.full_basis_1, self.full_basis_2)
+        coefficients = self._get_sample_coefficients()
+        return HilbertSpaceElement(
+            self.basis,
+            coefficients,
+        )
+
+    def _get_sample_coefficients(self):
+        """
+        Generates the sample coefficients for a given sample gp.
+        The first coefficients are repeated for the resulting
+        Non-stationary GP.
+        
+        The second coefficients are not repeated.
+        """
+        # variance = torch.eye(self.order)
+        normal_rv = (
+            torch.distributions.Normal(
+                loc=torch.zeros(math.floor(self.order / 2)),
+                scale=torch.ones(math.floor(self.order / 2)),
+            )
+            .sample()
+            .squeeze()
+        )
+        normal_rv_2 = (
+            torch.distributions.Normal(
+                loc=torch.zeros(self.order / 2),
+                scale=torch.ones(self.order / 2),
+            )
+            .sample()
+            .squeeze()
+        )
+        first_coeffics = torch.cat((normal_rv, normal_rv))
+        second_coeffics = normal_rv_2
+        coeffics = torch.view_as_complex(torch.vstack(first_coeffics, second_coeffics))
+        return coeffics
 
 
 class SmoothExponentialRFFGP(RFFGP):
@@ -339,6 +464,22 @@ class MercerGPSample(HilbertSpaceElement):
         Adds the mean function evaluation to the MercerGPSample
         """
         return super().__call__(x) + self.mean_function(x)
+
+
+class PosteriorGPSample(HilbertSpaceElement):
+    def __init__(
+        self,
+        prior_component: HilbertSpaceElement,
+        posterior_component: MercerGPSample,
+    ):
+        self.prior_component = prior_component
+        self.posterior_component = posterior_component
+
+    def get_order(self):
+        return self.prior_component.get_order()
+
+    def __call__(self, x):
+        return self.prior_component(x) + self.posterior_component(x)
 
 
 class HermiteMercerGPSample(MercerGPSample):
@@ -462,6 +603,7 @@ class HermiteMercerGP(MercerGP):
         """
         sample_coefficients = self._get_sample_coefficients()
         # sample_coefficients = torch.zeros(sample_coefficients.shape)
+
         return HermiteMercerGPSample(
             sample_coefficients + self._calculate_posterior_coefficients(),
             self.dim,
