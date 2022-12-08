@@ -4,7 +4,7 @@ import math
 import torch.distributions as D
 import math
 from ortho.basis_functions import Basis, OrthonormalBasis
-from ortho.orthopoly import OrthogonalBasisFunction
+from ortho.orthopoly import OrthogonalBasisFunction, OrthogonalPolynomial
 import matplotlib.pyplot as plt
 from typing import Tuple, Callable
 
@@ -44,7 +44,6 @@ class Likelihood:
         """
         self.order = order
         self.optimiser = optimiser
-        # self.scheduler = scheduler
 
         self.basis = basis
 
@@ -105,8 +104,6 @@ class Likelihood:
                 print("\n")
                 print(colored("log likelihood:", "red"), -this_loss)
 
-        # plt.plot(-losses[:i].detach().numpy())
-        # plt.show()
         return
 
     def step_optimisation(self, parameters):
@@ -127,7 +124,6 @@ class Likelihood:
         function at the input data to allow for optimisation of kernel
         parameters appearing in the model.
         """
-        # print("EVALLIKELIHOOD")
         const_term = (
             self.sample_size
             * 0.5
@@ -374,9 +370,10 @@ if __name__ == "__main__":
     log_gammas[0] = torch.log(torch.Tensor([1.0]))
     log_gammas.requires_grad = True
 
-    basis_function = OrthogonalBasisFunction(
-        order, betas, torch.exp(log_gammas)
-    )
+    # basis_function = OrthogonalBasisFunction(
+    basis_polynomial = OrthogonalPolynomial(order, betas, gammas)
+    # order, betas, torch.exp(log_gammas)
+    # )
     # params_from_net = basis_function.med.moment_net.parameters()
     # breakpoint()
     optimiser = torch.optim.SGD(
@@ -385,7 +382,11 @@ if __name__ == "__main__":
         ],
         lr=0.01,
     )
-    basis = OrthonormalBasis(basis_function, 1, order)
+
+    def weight_function(x: torch.Tensor) -> torch.Tensor:
+        return torch.exp(-(x ** 2) / 2)
+
+    basis = OrthonormalBasis(basis_polynomial, weight_function, 1, order)
 
     # fit the likelihood
     parameters = {
