@@ -298,7 +298,7 @@ class MercerGPFourierPosterior(MercerGP):
         """
         super().__init__(basis, order, dim, kernel, mean_function)
         self.rffgp = NonStationaryRFFGP(
-            basis
+            basis,
             order,
             dim,
             # spectral_distribution,
@@ -402,7 +402,7 @@ class NonStationaryRFFGP(RFFGP):
         Generates the sample coefficients for a given sample gp.
         The first coefficients are repeated for the resulting
         Non-stationary GP.
-        
+
         The second coefficients are not repeated.
         """
         # variance = torch.eye(self.order)
@@ -424,7 +424,9 @@ class NonStationaryRFFGP(RFFGP):
         )
         first_coeffics = torch.cat((normal_rv, normal_rv))
         second_coeffics = normal_rv_2
-        coeffics = torch.view_as_complex(torch.vstack(first_coeffics, second_coeffics))
+        coeffics = torch.view_as_complex(
+            torch.vstack(first_coeffics, second_coeffics)
+        )
         return coeffics
 
 
