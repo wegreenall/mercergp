@@ -10,6 +10,30 @@ from mercergp.kernels import MercerKernel
 from mercergp.MGP import MercerGP
 
 
+def build_mercer_gp(
+    parameters: dict,
+    order: int,
+    basis: bf.Basis,
+    # input_sample: torch.Tensor,
+    eigenvalue_generator: EigenvalueGenerator,
+    dim=1,
+):
+    """
+    parameters requires in params:
+        - ard_parameter,
+        - precision parameter,
+        - noise_parameter
+    """
+    eigenvalues = eigenvalue_generator(parameters)
+
+    # build the kernel
+    kernel = MercerKernel(order, basis, eigenvalues, parameters)
+
+    # build the gp
+    mgp = MercerGP(basis, order, dim, kernel)
+    return mgp
+
+
 def train_mercer_params(
     parameters: dict,
     input_sample: torch.Tensor,
@@ -95,10 +119,10 @@ def train_smooth_exponential_mercer_params(
     return new_parameters
 
 
-def build_mercer_gp(
+def build_smooth_exponential_mercer_gp(
     parameters: dict,
     order: int,
-    input_sample: torch.Tensor,
+    # input_sample: torch.Tensor,
     dim=1,
 ):
     """

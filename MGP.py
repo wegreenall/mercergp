@@ -196,11 +196,18 @@ class MercerGP:
 
         # add jitter for positive definiteness
         posterior_predictive_variance += 0.00001 * torch.eye(len(test_points))
-
-        return D.Normal(
-            posterior_predictive_mean_evaluation,
-            torch.diag(posterior_predictive_variance),
-        )
+        try:
+            distribution = D.Normal(
+                posterior_predictive_mean_evaluation,
+                torch.diag(posterior_predictive_variance),
+            )
+        except ValueError:
+            distribution = D.Normal(
+                posterior_predictive_mean_evaluation,
+                torch.abs(torch.diag(posterior_predictive_variance)),
+            )
+            print("FOUND NEGATIVe VARIANCE!")
+        return distribution
 
     def _calculate_posterior_coefficients(self) -> torch.Tensor:
         """
