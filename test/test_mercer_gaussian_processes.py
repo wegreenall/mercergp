@@ -12,6 +12,14 @@ from mercergp.kernels import MercerKernel
 from mercergp.MGP import MercerGP, RFFGP
 
 
+def output_function(x: torch.Tensor) -> torch.Tensor:
+    """
+    A test function for generating output values where necessary in the following
+    unit tests.
+    """
+    return (1.5 * torch.sin(x) + 0.5 * torch.cos(4 * x) + x / 8).squeeze()
+
+
 class TestMercerGP(unittest.TestCase):
     def setUp(self):
         # basis parameters
@@ -42,7 +50,7 @@ class TestMercerGP(unittest.TestCase):
             self.order, self.params
         )
 
-        # gp perameters
+        # gp parameters
         self.kernel = MercerKernel(
             self.order, self.basis, self.eigenvalues, self.params
         )
@@ -50,6 +58,12 @@ class TestMercerGP(unittest.TestCase):
         self.mercer_gp = MercerGP(
             self.basis, self.order, self.dimension, self.kernel
         )
+
+        # test points
+        torch.manual_seed(1)
+        test_sample_size = 50
+        test_sample_shape = torch.Size([test_sample_size])
+        self.input_points = D.Normal(0.0, 1.0).sample(test_sample_shape)
         return
 
     def test_adding_data(self):
@@ -90,7 +104,69 @@ class TestMercerGP(unittest.TestCase):
         self.assertEqual(coefficients.shape, torch.Size([self.order]))
         return
 
+    def test_marginal_predictive_density(self):
+        """
+        Tests if the output is of the right shape.
+        """
+        predictive_density = self.mercer_gp.get_marginal_predictive_density(
+            self.input_points
+        )
+        self.assertTrue(isinstance(predictive_density, D.Normal))
 
+    def test_marginal_predictive_density_size(self):
+        """
+        Tests if the output is of the right shape.
+        """
+        predictive_density = self.mercer_gp.get_marginal_predictive_density(
+            self.input_points
+        )
+        test_vector = output_function(self.input_points)
+        potential_values = torch.exp(predictive_density.log_prob(test_vector))
+        # breakpoint()
+        self.assertEqual(potential_values.shape, self.input_points.shape)
+
+    def test_marginal_predictive_density_output_mapping(self):
+        """
+        Tests if the n-th value of the predictive density log prob is the same
+        as the log prob at the given input points elementwise.
+        i.e, is evaluating log_prob on a vector of output points, when
+        the appropriate input points were passed to generate the predictive
+        density, giving the right evaluations?
+
+        Do this by:
+            a) generating the predictive density over the vector of input points,
+            which is an element-wise Normal distribution over the values
+            of the outputs for those inputs. Save this vector of predictive
+            densities
+            b) generating element-wise Normal distributions over the input points,
+            and testing the density at the corresponding output evaluation.
+            Each of these densities should be saved into a vector of predictive
+            densities.
+        If the values in these two vectors coincide, then it is working
+        correctly.
+        """
+        # get the vector of output evaluations
+        test_vector = output_function(self.input_points)
+        # # standard predictive density over the vector
+        predictive_density = self.mercer_gp.get_marginal_predictive_density(
+            self.input_points
+        )
+        potential_values = torch.exp(predictive_density.log_prob(test_vector))
+
+        # calculate them elementwise
+        probs = []
+        for input_point, test_point in zip(self.input_points, test_vector):
+            pred_density = self.mercer_gp.get_marginal_predictive_density(
+                input_point.unsqueeze(0)
+            )
+            probs.append(torch.exp(pred_density.log_prob(test_point)))
+        # breakpoint()
+        probs_tensor = torch.Tensor(probs)
+
+        self.assertTrue(torch.allclose(probs_tensor, potential_values))
+
+
+@unittest.skip("Not correct")
 class TestRFFMercerGP(unittest.TestCase):
     def setUp(self):
         # basis parameters
@@ -114,7 +190,7 @@ class TestRFFMercerGP(unittest.TestCase):
 
         self.spectral_distribution = D.Normal(0.0, 1.0)
 
-        # gp perameters
+        # gp parameters
         self.mercer_gp = RFFGP(
             self.order,
             self.dimension,
