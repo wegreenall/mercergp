@@ -53,6 +53,18 @@ class TestStationaryKernels(unittest.TestCase):
         test_2 = self.kernel.kernel_inverse(test_inputs)
         self.assertTrue((test_1 == test_2).all())
 
+    def test_inverse_identity(self):
+        test_inputs = torch.linspace(0, 1, 10).unsqueeze(1)
+        kernel = self.kernel(
+            test_inputs, test_inputs
+        ) + self.kernel.kernel_args["noise_parameter"] ** 2 * torch.eye(
+            test_inputs.shape[0]
+        )
+
+        kernel_inv = self.kernel.kernel_inverse(test_inputs)
+        identity = kernel @ kernel_inv
+        self.assertTrue(torch.allclose(identity, torch.eye(kernel.shape[0])))
+
 
 class TestMercerKernel(unittest.TestCase):
     def setUp(self):
@@ -107,6 +119,18 @@ class TestMercerKernel(unittest.TestCase):
         test_2 = self.kernel.kernel_inverse(test_inputs)
         self.assertTrue((torch.abs(test_1 - test_2) < 1e-6).all())
         return
+
+    def test_inverse_identity(self):
+        test_inputs = torch.linspace(0, 1, 10).unsqueeze(1)
+        kernel = self.kernel(
+            test_inputs, test_inputs
+        ) + self.kernel.kernel_args["noise_parameter"] ** 2 * torch.eye(
+            test_inputs.shape[0]
+        )
+
+        kernelinv = self.kernel.kernel_inverse(test_inputs)
+        identity = kernel @ kernelinv
+        self.assertTrue(torch.allclose(identity, torch.eye(kernel.shape[0])))
 
 
 if __name__ == "__main__":
