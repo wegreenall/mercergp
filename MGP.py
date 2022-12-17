@@ -209,6 +209,7 @@ class MercerGP:
 
         # add jitter for positive definiteness
         posterior_predictive_variance += 0.00001 * torch.eye(len(test_points))
+        # breakpoint()
         try:
             distribution = D.MultivariateNormal(
                 posterior_predictive_mean_evaluation,
@@ -244,14 +245,12 @@ class MercerGP:
         inputs = self.get_inputs()
 
         # now calculate the variance
-        posterior_predictive_variance = self.kernel(
-            test_points, test_points
-        ) - self.kernel(
-            test_points, self.get_inputs()
-        ) @ self.kernel.kernel_inverse(
-            inputs
-        ) @ self.kernel(
-            inputs, test_points
+        posterior_predictive_variance = (
+            self.kernel(test_points, test_points)
+            - self.kernel(test_points, inputs)
+            @ self.kernel.kernel_inverse(inputs)
+            @ self.kernel(inputs, test_points)
+            + self.kernel.kernel_args["noise_parameter"] ** 2
         )
 
         # add jitter for positive definiteness
@@ -679,11 +678,14 @@ class HermiteMercerGP(MercerGP):
 
 if __name__ == "__main__":
     """ """
+    plot_example = True
+    test_predictive_densities = True
+    test_single_predictive_density = False
     # parameters for the test
     sample_size = 300
 
     # build a mercer kernel
-    order = 10  # degree of approximation
+    order = 15  # degree of approximation
     dim = 1
 
     # set up the arguments
@@ -705,8 +707,6 @@ if __name__ == "__main__":
     # build the Mercer kernel examples
     dist = torch.distributions.Normal(loc=0, scale=epsilon)
     inputs = dist.sample([sample_size])
-    basis(inputs)
-    gram = test_kernel(inputs, inputs) + epsilon * torch.eye(sample_size)
 
     a = 1
     b = 2
@@ -728,34 +728,61 @@ if __name__ == "__main__":
     # test the inverse
     # inv_1 = test_kernel.kernel_inverse(inputs)
     # inv_3 = torch.inverse(test_kernel(inputs, inputs))
-    test_points = torch.linspace(-2, 2, 100)  # .unsqueeze(1)
-    test_sample = mercer_gp.gen_gp()  # the problem!
-    test_mean = mercer_gp.get_posterior_mean()
+    if plot_example:
+        test_points = torch.linspace(-2, 2, 100)  # .unsqueeze(1)
+        test_sample = mercer_gp.gen_gp()  # the problem!
+        test_mean = mercer_gp.get_posterior_mean()
 
-    # GP sample
-    plt.plot(
-        test_points.flatten().numpy(),
-        test_sample(test_points).flatten().numpy(),
-    )
-    # GP mean
-    plt.plot(
-        test_points.flatten().numpy(),
-        test_mean(test_points).flatten().numpy(),
-    )
-    # true function
-    plt.plot(
-        test_points.flatten().numpy(), data_func(test_points).flatten().numpy()
-    )
-    # input/output points
-    plt.scatter(inputs, data_points, marker="+")
-    plt.show()
+        # GP sample
+        plt.plot(
+            test_points.flatten().numpy(),
+            test_sample(test_points).flatten().numpy(),
+        )
+        # GP mean
+        plt.plot(
+            test_points.flatten().numpy(),
+            test_mean(test_points).flatten().numpy(),
+        )
+        # true function
+        plt.plot(
+            test_points.flatten().numpy(),
+            data_func(test_points).flatten().numpy(),
+        )
+        # input/output points
+        plt.scatter(inputs, data_points, marker="+")
+        # plt.show()
 
-    predictive_density = mercer_gp.get_marginal_predictive_density(test_points)
-    print("Predictive density:", predictive_density)
-    # breakpoint()
+        # if test_predictive_densities:
+        predictive_density = mercer_gp.get_marginal_predictive_density(
+            test_points
+        )
+        plt.plot(
+            test_points,
+            predictive_density.loc.numpy().flatten(),
+            color="purple",
+        )
+        plt.plot(
+            test_points,
+            predictive_density.loc.numpy().flatten()
+            + 2 * predictive_density.scale.numpy().flatten(),
+            color="red",
+        )
+        plt.plot(
+            test_points,
+            predictive_density.loc.numpy().flatten()
+            - 2 * predictive_density.scale.numpy().flatten(),
+            color="red",
+        )
+        plt.show()
+        # plt.plot(
+        # inputs, predictive_density.loc[0].numpy().flatten(), color="purple"
+        # )
+        # breakpoint()
+        print("Predictive density:", predictive_density)
 
-    test_point = torch.tensor(0.0)
-    predictive_density_single = mercer_gp.get_marginal_predictive_density(
-        test_point
-    )
-    print("Predictive Density Single:", predictive_density_single)
+    if test_single_predictive_density:
+        test_point = torch.tensor(0.0)
+        predictive_density_single = mercer_gp.get_marginal_predictive_density(
+            test_point
+        )
+        print("Predictive Density Single:", predictive_density_single)

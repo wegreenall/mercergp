@@ -526,7 +526,7 @@ class RandomFourierFeaturesKernel(MercerKernel):
     def get_interim_matrix_inverse(self, input_points):
         return torch.inverse(
             self(input_points, input_points)
-            + self.kernel_args["noise_parameter"]
+            + self.kernel_args["noise_parameter"] ** 2
             * torch.eye(input_points.shape[0])
         )
 

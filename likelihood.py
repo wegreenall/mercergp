@@ -177,7 +177,9 @@ class Likelihood:
         """
         # print("LOGDET")
         eigenvalues = self._eigenvalues(parameters)
-        term_1 = self.sample_size * torch.log(parameters["noise_parameter"])
+        term_1 = (
+            2 * self.sample_size * torch.log(parameters["noise_parameter"])
+        )
         # term_1: det((diag(A)) = prod(aii)
         """
         The determinant of a diagonal matrix is the product of its diagonal
@@ -190,7 +192,7 @@ class Likelihood:
         term_3 = torch.log(
             torch.linalg.det(
                 self._lambdainv(parameters)
-                + (1 / parameters["noise_parameter"]) * ksiksi
+                + (1 / parameters["noise_parameter"] ** 2) * ksiksi
             )
         )
         if (term_3 != term_3).any():
@@ -234,8 +236,7 @@ class Likelihood:
              (ΞΛΞ' + σ^2Ι)^{-1} = σ^{-2} I_n - σ^{-2} Ξ(σ^2Λ^-1 + Ξ'Ξ)^{-1}Ξ'
 
         """
-        # print("KSIKSIINV")
-        inverse_sigma = 1 / parameters["noise_parameter"]
+        inverse_sigma = 1 / parameters["noise_parameter"] ** 2
         term_1 = inverse_sigma * torch.eye(self.sample_size)
 
         term_2 = inverse_sigma * torch.linalg.multi_dot(
