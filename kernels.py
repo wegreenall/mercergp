@@ -259,13 +259,15 @@ class MercerKernel(StationaryKernel):
         "noise_parameter",
     }
 
-    def __init__(self, order, basis: Basis, eigenvalues, kernel_args):
+    def __init__(
+        self, order: int, basis: Basis, eigenvalues: torch.Tensor, kernel_args
+    ):
         """
         Initialises a Mercer Kernel approximation.
 
         The  Mercer Kernel approximation builds an approximate kernel by
-        utilising the Mercer expansion. If you have an eigensystem {λ_i, φ_i},
-        you can construct k(x_i,x_j) ~= Σ_i^m λ_i φ_l(x_i) φ_l(x_j).
+        utilising the Mercer expansion. If you have an eigensystem {λ_l, φ_l},
+        you can construct k(x_i,x_j) ~= Σ_l^m λ_l φ_l(x_i) φ_l(x_j).
 
         : param m: the number of terms in the summation, and the highest
         degree of the basis functions used for approximating the kernel
@@ -295,7 +297,9 @@ class MercerKernel(StationaryKernel):
         self.kernel_args = kernel_args
 
     @staticmethod
-    def get_data_differences(input_points, test_points):
+    def get_data_differences(
+        input_points: torch.Tensor, test_points: torch.Tensor
+    ):
         return input_points, test_points
 
     def evaluate_kernel(self, data_differences):

@@ -216,9 +216,9 @@ class MercerGP:
                 posterior_predictive_variance,
             )
         except ValueError:
-            distribution = D.Normal(
+            distribution = D.MultivariateNormal(
                 posterior_predictive_mean_evaluation,
-                torch.abs(torch.diag(posterior_predictive_variance)),
+                torch.abs(posterior_predictive_variance),
             )
             print("FOUND NEGATIVE VARIANCE!")
         return distribution
@@ -242,6 +242,11 @@ class MercerGP:
         posterior_predictive_mean_evaluation = posterior_predictive_mean(
             test_points
         )
+        # print(
+        # "mercer posterior predictive mean shape:",
+        # posterior_predictive_mean_evaluation.shape,
+        # )
+        # breakpoint()
         inputs = self.get_inputs()
 
         # now calculate the variance
@@ -250,7 +255,7 @@ class MercerGP:
             - self.kernel(test_points, inputs)
             @ self.kernel.kernel_inverse(inputs)
             @ self.kernel(inputs, test_points)
-            + self.kernel.kernel_args["noise_parameter"] ** 2
+            # + self.kernel.kernel_args["noise_parameter"] ** 2
         )
 
         # add jitter for positive definiteness

@@ -16,11 +16,6 @@ prior component and a posterior component.
 """
 
 
-def weight_function(x: torch.Tensor):
-    """docstring for weight_function"""
-    return torch.exp(-(x ** 2) / 2)
-
-
 class NonStationarySpectralDistribution:
     """
     Represents the spectral distribution, where sampling has been
@@ -92,43 +87,46 @@ def kernel_fft_decomposed(
     This case utilises the fact that:
         F(ω_1, ω_2) = \int \int k(x,y)e^(-j2π(ω_1 x + ω_2 y))dxdy
                     = \int \int \sum_i λ_i φ_i(x) φ_i(y) e^(-j2π(ω_1 x)e^(-j2π(ω_2 y))dxdy
-                    = \sum_i λ_i \int φ_i(x) e^(-j2π(ω_1 x)dx \int φ_i(y) e^(-j2π(ω_2 y))dy
+                    = \sum_i λ_i \int φ_i(x) e^(-2jπ(ω_1 x))dx \int φ_i(y) e^(-2j π(ω_2 y))dy
 
     """
     x_range = torch.linspace(begin, end, int(frequency))
     y_range = torch.linspace(begin, end, int(frequency))
 
-    # values = kernel(x_range, y_range)
     basis = kernel.basis
     phis = basis(x_range)
     phis_2 = basis(y_range)
-    # fft_data = torch.fft.ifft(phis)
-    # fft_data = torch.Tensor([torch.fft.ifft(phi) for phi in phis])
-    # fft_data_2 = torch.Tensor([torch.fft.ifft(phi) for phi in phis_2])
-    # fft_data = [torch.fft.ifft(phi) for phi in phis]
-    # fft_data_2 = [torch.fft.ifft(phi) for phi in phis_2]
-    fft_data = torch.fft.fftshift(torch.fft.fft(phis))
-    fft_data_2 = torch.fft.fftshift(torch.fft.fft(phis_2))
-    fft_data = torch.fft.fft(phis)
-    fft_data_2 = torch.fft.fft(phis_2)
 
-    # full_fft = torch.outer(fft_data, fft_data_2)
+    # get the per-side FFTs of the function
+    fft_data = torch.fft.fftshift(
+        torch.fft.fft(torch.fft.fftshift(phis), norm="ortho")
+    )
+    fft_data_2 = torch.fft.fftshift(
+        torch.fft.fft(torch.fft.fftshift(phis_2), norm="ortho")
+    )
 
     eigens = kernel.get_eigenvalues()
+
+    # Outer product for the 2-d FFT
     full_fft = torch.einsum("il, kl -> ikl", fft_data, fft_data_2)
 
     complex_eigens = torch.complex(eigens, torch.zeros(eigens.shape))
 
-    spectral_density = torch.einsum("l,ijl->ij", complex_eigens, full_fft)
-    # return torch.fft.fftshift(spectral_density)
+    spectral_density = torch.einsum("l,ijl->ij", complex_eigens, full_fft).real
     return spectral_density
 
 
-def histogram_spectral_distribution(kernel: MercerKernel) -> D.Distribution:
+def histogram_spectral_distribution(
+    kernel: MercerKernel,
+    begin: torch.Tensor,
+    end: torch.Tensor,
+    frequency: float,
+) -> D.Distribution:
     """
     Given a kernel, returns a spectral distribution approximation
     via histogram sampling and a 2-d FFT.
     """
+    spectral_density = kernel_fft_decomposed(begin, end, frequency, kernel)
 
     raise NotImplementedError
 
@@ -143,8 +141,13 @@ def mixtures_spectral_distribution(kernel: MercerKernel) -> D.Distribution:
 
 if __name__ == "__main__":
     """
-    The program begins here
+    Test examples
     """
+
+    def weight_function(x: torch.Tensor):
+        """A standard weight function for test cases."""
+        return torch.exp(-(x ** 2) / 2)
+
     order = 15
     sample_size = 1000
     sample_shape = torch.Size([sample_size])
@@ -176,8 +179,11 @@ if __name__ == "__main__":
     frequency = 1000
     fft_data = kernel_fft(begin, end, frequency, kernel)
     fft_data_2 = kernel_fft_decomposed(begin, end, frequency, kernel)
+    # print(fft_data)
+    # plt.imshow(fft_data.real)
+    # plt.show()
+
     print(fft_data_2)
-    # plt.plot(fft_data_2)
     plt.imshow(fft_data_2.real)
     plt.show()
     # plt.imshow(fft_data.real)
