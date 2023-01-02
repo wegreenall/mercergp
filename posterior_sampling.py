@@ -5,8 +5,17 @@ import math
 from mercergp.kernels import MercerKernel
 from mercergp.eigenvalue_gen import SmoothExponentialFasshauer
 from ortho.builders import get_orthonormal_basis_from_sample
-from ortho.basis_functions import smooth_exponential_eigenvalues
+from ortho.basis_functions import (
+    Basis,
+    # smooth_exponential_eigenvalues_fasshauer,
+    smooth_exponential_basis_fasshauer,
+)
+
+# from mercergp.builders import build_mercer_gp_fourier_posterior
+
+# from ortho.basis_functions import smooth_exponential_eigenvalues
 import matplotlib.pyplot as plt
+from termcolor import colored
 
 """
 This file contains classes and functions useful for the purpose of appropriate posterior
@@ -16,50 +25,64 @@ prior component and a posterior component.
 """
 
 
-class NonStationarySpectralDistribution:
+class MercerSpectralDistribution(D.Categorical):
     """
     Represents the spectral distribution, where sampling has been
     converted to the shape necessary for the Random Fourier Feature
     basis format.
     """
 
-    def __init__(
-        self,
-        spectral_distribution: D.Distribution,
-    ):
-        self.spectral_distribution = spectral_distribution
-        # self.dim_1_dist = dim_1_marginal
-        # self.dim_2_dist = dim_2_marginal
-        return
+    def __init__(self, frequency: int, probs: torch.Tensor):
+        self.frequency = frequency
+        self.half_frequency = math.floor(frequency / 2)
+        self.pre_probs = probs
+        self.flattened_probs = probs.flatten()
+        super().__init__(probs=self.flattened_probs)
 
-    def sample(self, sample_size: torch.Size) -> torch.Tensor:
+    def sample(self, feature_count: torch.Size):
         """
-        Returns a sample from the 2d-spectral distribution corresponding to
-        a kernel via Yaglom's theorem.
+        To sample from the 2-d spectral density,
+        we can treat the FFT result as a large categorical distribution.
+        This has had its (2-d) probability "matrix" flattened so the corresponding
+        probability refers to a single location in the 2-d matrix, so we get
+        the right correlation (like a 2-d probability table). Then we can use
+        modulo and floor division operators to extract the 2-d sample from the
+        stride and step of the sample with respect to the frequency.
+        """
+        categorical_sample = super().sample(
+            torch.Size([math.floor(feature_count[0] / 2), 1])
+        )
+        omega_1 = torch.div(
+            categorical_sample, self.frequency, rounding_mode="trunc"
+        )
+        omega_2 = categorical_sample % self.frequency
+        # omega_2 = torch.abs(categorical_sample % self.frequency)
+        omega_1 -= self.half_frequency
+        omega_2 -= self.half_frequency
+        sample = torch.cat((omega_1, omega_2)).double()
+        return sample
 
-        The spectral distribution as passed in should generate a sample of size
-        [N, 2], since it is ostensibly a 2-d spectral distribution.
+
+class HistogramSpectralDistribution(MercerSpectralDistribution):
+    def sample(self, feature_count: torch.Size):
         """
-        if sample_size[0] % 2 != 0:
-            raise ValueError(
-                "Please pass an even number for the sample size for the NonStationaryDistribution. It is likely that you have selected an odd number for the order for the Random Fourier Features prior component on a non-stationary Fourier Features model"
-            )
-        first_half_sample_size = sample_size.clone()
-        second_half_sample_size = sample_size.clone()
-        first_half_sample_size[0] = math.floor(first_half_sample_size[0] / 2)
-        second_half_sample_size[0] = math.ceil(second_half_sample_size[0] / 2)
-        # sample_part_1 = self.dim_1_dist.sample(sample_size)
-        # sample_part_2 = self.dim_2_dist.sample(sample_size)
-        sample = self.spectral_distribution.sample(sample_size)
-        sample = torch.cat((sample[:, 0], sample[:, 1]))
+        Histogram sampling from the spectral distribution involves constructing
+        a standard discrete integer frequency distribution (as represented by
+        the MercerSpectralDistribution class), and adding Unif[-0.5, 0.5]
+        random variables to the sample along the ω_1 and ω_2 axis.
+        """
+        sample = super().sample(feature_count)
+        sample = sample + D.Uniform(-0.5, 0.5).sample(feature_count).unsqueeze(
+            1
+        )
         return sample
 
 
 def kernel_fft(
+    kernel: MercerKernel,
     begin: torch.Tensor,
     end: torch.Tensor,
-    frequency: float,
-    kernel: MercerKernel,
+    frequency: int,
 ) -> torch.Tensor:
     """
     Given a beginning range, end range, and a frequency, calculates the 2-d FFT
@@ -75,10 +98,10 @@ def kernel_fft(
 
 
 def kernel_fft_decomposed(
+    kernel: MercerKernel,
     begin: torch.Tensor,
     end: torch.Tensor,
     frequency: float,
-    kernel: MercerKernel,
 ) -> torch.Tensor:
     """
     Given a beginning range, end range, and a frequency, calculates the 2-d FFT
@@ -94,41 +117,115 @@ def kernel_fft_decomposed(
     y_range = torch.linspace(begin, end, int(frequency))
 
     basis = kernel.basis
+    eigens = kernel.get_eigenvalues()
     phis = basis(x_range)
     phis_2 = basis(y_range)
 
     # get the per-side FFTs of the function
     fft_data = torch.fft.fftshift(
-        torch.fft.fft(torch.fft.fftshift(phis), norm="ortho")
+        torch.fft.fft(
+            torch.fft.fftshift(phis),
+            # n=math.floor(frequency / 2),
+            # n=2 * frequency,
+            norm="ortho",
+            dim=0,
+        )
     )
     fft_data_2 = torch.fft.fftshift(
-        torch.fft.fft(torch.fft.fftshift(phis_2), norm="ortho")
+        torch.fft.fft(
+            torch.fft.fftshift(phis_2),
+            # n=math.floor(frequency / 2),
+            # n=2 * frequency,
+            norm="ortho",
+            dim=0,
+        )
     )
 
-    eigens = kernel.get_eigenvalues()
+    # fft_data = torch.fft.fft(torch.fft.fftshift(phis), norm="ortho", dim=0)
 
+    # fft_data_2 = torch.fft.fft(torch.fft.fftshift(phis_2), norm="ortho", dim=0)
     # Outer product for the 2-d FFT
-    full_fft = torch.einsum("il, kl -> ikl", fft_data, fft_data_2)
+    full_fft = torch.einsum(
+        "l, il, jl -> ij", eigens, fft_data.real, fft_data_2.real
+    )
 
-    complex_eigens = torch.complex(eigens, torch.zeros(eigens.shape))
+    return torch.abs(full_fft)
+    # return full_fft
 
-    spectral_density = torch.einsum("l,ijl->ij", complex_eigens, full_fft).real
-    return spectral_density
+
+def kernel_fft_decomposed_real(
+    kernel: MercerKernel,
+    begin: torch.Tensor,
+    end: torch.Tensor,
+    frequency: float,
+) -> torch.Tensor:
+    """
+    Given a beginning range, end range, and a frequency, calculates the 2-d FFT
+    for a Mercer kernel for the purpose of utilising Yaglom's theorem.
+
+    This case utilises the fact that:
+        F(ω_1, ω_2) = \int \int k(x,y)e^(-j2π(ω_1 x + ω_2 y))dxdy
+                    = \int \int \sum_i λ_i φ_i(x) φ_i(y) e^(-j2π(ω_1 x)e^(-j2π(ω_2 y))dxdy
+                    = \sum_i λ_i \int φ_i(x) e^(-2jπ(ω_1 x))dx \int φ_i(y) e^(-2j π(ω_2 y))dy
+
+    """
+    x_range = torch.linspace(begin, end, int(frequency))
+    y_range = torch.linspace(begin, end, int(frequency))
+
+    basis = kernel.basis
+    eigens = kernel.get_eigenvalues()
+    phis = basis(x_range)
+    phis_2 = basis(y_range)
+
+    # get the per-side FFTs of the function
+    fft_data = torch.fft.fftshift(
+        torch.fft.rfft(torch.fft.fftshift(phis), norm="ortho", dim=0)
+    )
+    fft_data_2 = torch.fft.fftshift(
+        torch.fft.rfft(torch.fft.fftshift(phis_2), norm="ortho", dim=0)
+    )
+
+    # fft_data = torch.fft.fft(torch.fft.fftshift(phis), norm="ortho", dim=0)
+
+    # fft_data_2 = torch.fft.fft(torch.fft.fftshift(phis_2), norm="ortho", dim=0)
+    # Outer product for the 2-d FFT
+    full_fft = torch.einsum("l, il, jl -> ij", eigens, fft_data, fft_data_2)
+
+    return torch.abs(full_fft)
+
+
+def integer_spectral_distribution(
+    kernel: MercerKernel,
+    begin: torch.Tensor,
+    end: torch.Tensor,
+    frequency: int,
+) -> D.Distribution:
+    """
+    Given a kernel, returns a spectral distribution approximation
+    via histogram sampling and a 2-d FFT.
+    """
+    # generate a matrix of spectral density evaluations
+    spectral_density = kernel_fft_decomposed(kernel, begin, end, frequency)
+    plt.imshow(spectral_density)
+    plt.show()
+    distribution = MercerSpectralDistribution(frequency, spectral_density)
+    return distribution
 
 
 def histogram_spectral_distribution(
     kernel: MercerKernel,
     begin: torch.Tensor,
     end: torch.Tensor,
-    frequency: float,
+    frequency: int,
 ) -> D.Distribution:
     """
     Given a kernel, returns a spectral distribution approximation
     via histogram sampling and a 2-d FFT.
     """
-    spectral_density = kernel_fft_decomposed(begin, end, frequency, kernel)
-
-    raise NotImplementedError
+    # generate a matrix of spectral density evaluations
+    spectral_density = kernel_fft_decomposed(kernel, begin, end, frequency)
+    distribution = HistogramSpectralDistribution(frequency, spectral_density)
+    return distribution
 
 
 def mixtures_spectral_distribution(kernel: MercerKernel) -> D.Distribution:
@@ -143,12 +240,13 @@ if __name__ == "__main__":
     """
     Test examples
     """
+    test_posterior_sampling_correlation = True
 
     def weight_function(x: torch.Tensor):
         """A standard weight function for test cases."""
         return torch.exp(-(x ** 2) / 2)
 
-    order = 15
+    order = 20
     sample_size = 1000
     sample_shape = torch.Size([sample_size])
     mixture_dist = False
@@ -165,26 +263,33 @@ if __name__ == "__main__":
     basis = get_orthonormal_basis_from_sample(
         input_sample, weight_function, order
     )
+
     params = {
-        "ard_parameter": torch.Tensor([[1.0]]),
+        "ard_parameter": torch.Tensor([[10.0]]),
         "variance_parameter": torch.Tensor([1.0]),
         "precision_parameter": torch.Tensor([1.0]),
         "noise_parameter": torch.Tensor([0.1]),
     }
 
     eigenvalues = SmoothExponentialFasshauer(order)(params)
+    basis = Basis(smooth_exponential_basis_fasshauer, 1, order, params)
     kernel = MercerKernel(order, basis, eigenvalues, params)
-    begin = -3
-    end = 3
-    frequency = 1000
-    fft_data = kernel_fft(begin, end, frequency, kernel)
-    fft_data_2 = kernel_fft_decomposed(begin, end, frequency, kernel)
-    # print(fft_data)
-    # plt.imshow(fft_data.real)
-    # plt.show()
+    begin = -4
+    end = 4
+    frequency = 8000
+    fft_data = kernel_fft(kernel, begin, end, frequency)
+    fft_data_2 = kernel_fft_decomposed(kernel, begin, end, frequency)
+    integer = True
+    if integer:
+        spectral_dist = integer_spectral_distribution(
+            kernel, begin, end, frequency
+        )
+    else:
+        spectral_dist = histogram_spectral_distribution(
+            kernel, begin, end, frequency
+        )
 
-    print(fft_data_2)
-    plt.imshow(fft_data_2.real)
+    sample = spectral_dist.sample(torch.Size([8000]))
+    plt.hist(sample[:, 0].numpy().flatten(), bins=87)
+    plt.hist(sample[:, 1].numpy().flatten(), bins=87)
     plt.show()
-    # plt.imshow(fft_data.real)
-    # plt.show()
