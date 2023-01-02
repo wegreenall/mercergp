@@ -1,13 +1,17 @@
 # builders.py
 import torch
-from mercergp import MGP
-from mercergp.eigenvalue_gen import PolynomialEigenvalues, EigenvalueGenerator
+import torch.distributions as D
+import matplotlib.pyplot as plt
+
+# from mercergp import MGP
+from mercergp.eigenvalue_gen import EigenvalueGenerator
 from ortho import basis_functions as bf
 
 from mercergp.eigenvalue_gen import SmoothExponentialFasshauer
 from mercergp.likelihood import MercerLikelihood
 from mercergp.kernels import MercerKernel
-from mercergp.MGP import MercerGP
+from mercergp.MGP import MercerGP, MercerGPFourierPosterior
+from mercergp.posterior_sampling import histogram_spectral_distribution
 
 
 def build_mercer_gp(
@@ -145,6 +149,43 @@ def build_smooth_exponential_mercer_gp(
     return mgp
 
 
+def build_mercer_gp_fourier_posterior(
+    parameters: dict,
+    order: int,
+    rff_order: int,
+    basis: bf.Basis,
+    # input_sample: torch.Tensor,
+    eigenvalue_generator: EigenvalueGenerator,
+    dim=1,
+    begin=-5,
+    end=5,
+    frequency=1000,
+) -> MercerGPFourierPosterior:
+    """
+    parameters requires in params:
+        - ard_parameter,
+        - precision parameter,
+        - noise_parameter
+    """
+
+    # build the kernel
+    eigenvalues = eigenvalue_generator(parameters)
+    kernel = MercerKernel(order, basis, eigenvalues, parameters)
+
+    # build the rff_basis
+    spectral_distribution = histogram_spectral_distribution(
+        kernel, begin, end, frequency
+    )
+    rff_basis = bf.RandomFourierFeatureBasis(
+        dim, rff_order, spectral_distribution
+    )
+    # build the gp
+    mgp = MercerGPFourierPosterior(
+        basis, rff_basis, order, rff_order, dim, kernel
+    )
+    return mgp
+
+
 # def build_mercer_gp(
 # basis: bf.Basis,
 # ard_parameter: torch.Tensor,
@@ -172,3 +213,125 @@ def build_smooth_exponential_mercer_gp(
 # kernel = MGP.MercerKernel(order, basis, eigenvalues, kernel_params)
 # mercer_gp = MGP.MercerGP(basis, order, dim, kernel)
 # return mercer_gp
+
+if __name__ == "__main__":
+    """
+    The program begins here
+    """
+
+    def test_function(x: torch.Tensor) -> torch.Tensor:
+        """
+        Test function used in an iteration of Daskalakis, Dellaportas and Panos.
+        """
+        return (1.5 * torch.sin(x) + 0.5 * torch.cos(4 * x) + x / 8).squeeze()
+
+    build_mercer = False
+    build_se_mercer = False
+    build_mercer_fourier = True
+    test_posterior_sampling_correlation = False
+
+    # plotting
+    axis_width = 6
+    x_axis = torch.linspace(-axis_width, axis_width, 1000)  # .unsqueeze(1)
+    test_sample_size = 500
+    test_sample_shape = torch.Size([test_sample_size])
+
+    # hyperparameters
+    order = 4
+    rff_order = 2700
+    dimension = 1
+    l_se = torch.Tensor([[0.3]])
+    sigma_se = torch.Tensor([1.0])
+    prec = torch.Tensor([1.0])
+    sigma_e = torch.Tensor([0.3])
+    kernel_args = {
+        "ard_parameter": l_se,
+        "variance_parameter": sigma_se,
+        "noise_parameter": sigma_e,
+        "precision_parameter": prec,
+    }
+    # basis = Basis()
+    basis = bf.Basis(
+        bf.smooth_exponential_basis_fasshauer,
+        dimension,
+        order,
+        kernel_args,
+    )
+    eigenvalue_generator = SmoothExponentialFasshauer(order)
+    if build_mercer:
+        mercer_gp = build_mercer_gp(
+            kernel_args, order, basis, eigenvalue_generator
+        )
+        inputs = D.Normal(0.0, 1.0).sample(test_sample_shape)
+        outputs = test_function(inputs)
+        mercer_gp.add_data(inputs, outputs)
+        posterior_sample = mercer_gp.gen_gp()
+        sample_data = posterior_sample(x_axis)
+        breakpoint()
+        plt.plot(x_axis, sample_data.real)
+        plt.scatter(inputs, outputs)
+        plt.show()
+
+    if build_se_mercer:
+        pass
+
+    if build_mercer_fourier:
+        mercer_gp_fourier_posterior = build_mercer_gp_fourier_posterior(
+            kernel_args,
+            order,
+            rff_order,
+            basis,
+            eigenvalue_generator,
+            frequency=3500,
+        )
+        inputs = D.Normal(0.0, 1.0).sample(test_sample_shape)
+        outputs = test_function(inputs) + sigma_e * D.Normal(0.0, 1.0).sample(
+            inputs.shape
+        )
+        mercer_gp_fourier_posterior.add_data(inputs, outputs)
+        posterior_sample = mercer_gp_fourier_posterior.gen_gp()
+        sample_data = posterior_sample(x_axis)
+
+        plt.plot(x_axis, sample_data.real)
+        if sample_data.is_complex():
+            plt.plot(x_axis, sample_data.imag)
+        plt.scatter(inputs, outputs)
+        plt.show()
+
+    if test_posterior_sampling_correlation:
+        raise NotImplementedError
+        """
+        Currently not implemented.
+        """
+        axis_width = 6
+        x_axis = torch.linspace(-axis_width, axis_width, 1000)  # .unsqueeze(1)
+        correlation_testing_sample_size = 100000
+        correlation_testing_sample_shape = torch.Size(
+            [correlation_testing_sample_size]
+        )
+
+        test_sample_size = 20
+        test_sample_shape = torch.Size([test_sample_size])
+        # rff_order = 1000
+        eigenvalue_generator = SmoothExponentialFasshauer(order)
+        mercer_gp_fourier_posterior = build_mercer_gp_fourier_posterior(
+            kernel_args, order, rff_order, basis, eigenvalue_generator
+        )
+
+        inputs = D.Normal(0.0, 1.0).sample(test_sample_shape)
+        outputs = test_function(inputs) + sigma_se * D.Normal(0.0, 1.0).sample(
+            inputs.shape
+        )
+        mercer_gp_fourier_posterior.add_data(inputs, outputs)
+        posterior_sample = mercer_gp_fourier_posterior.gen_gp()
+        sample_data = posterior_sample(x_axis)
+
+        # plt.plot(x_axis, sample_data.real)
+        # if sample_data.is_complex():
+        # plt.plot(x_axis, sample_data.imag)
+        # plt.scatter(inputs, outputs)
+        # plt.show()
+
+        unif_dist = D.Uniform(-axis_width, axis_width)
+        unif_sample = unif_dist.sample(correlation_testing_sample_size)
+        posterior_sample_unifs = posterior_sample(unif_sample)
