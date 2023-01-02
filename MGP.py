@@ -10,7 +10,7 @@ from ortho.basis_functions import (
     CompositeBasis,
     RandomFourierFeatureBasis,
 )
-from mercergp.posterior_sampling import NonStationarySpectralDistribution
+from mercergp.posterior_sampling import MercerSpectralDistribution
 from mercergp.kernels import MercerKernel, RandomFourierFeaturesKernel
 import matplotlib.pyplot as plt
 
@@ -34,7 +34,15 @@ class HilbertSpaceElement:
         """
         Evaluates the Hilbert Space element at the given inputs x.
         """
-        return torch.inner(self.coefficients, self.basis(x)).squeeze()
+        # breakpoint()
+        if self.coefficients.is_complex():
+            return torch.inner(
+                self.coefficients,
+                torch.complex(self.basis(x), torch.zeros(self.basis(x).shape)),
+                # self.basis(x),
+            ).squeeze()
+        else:
+            return torch.inner(self.coefficients, self.basis(x)).squeeze()
 
     def get_order(self) -> int:
         """
@@ -112,7 +120,9 @@ class MercerGP:
         # add the inputs and alter the coefficients
         self.x = torch.cat([self.x, x])
         self.y = torch.cat([self.y, y])
-        self.posterior_coefficients = self._calculate_posterior_coefficients()
+        self.posterior_coefficients = self._calculate_posterior_coefficients(
+            self.x, self.y
+        )
         return
 
     def set_data(self, x, y):
@@ -124,7 +134,9 @@ class MercerGP:
         """
         self.x = x
         self.y = y
-        self.posterior_coefficients = self._calculate_posterior_coefficients()
+        self.posterior_coefficients = self._calculate_posterior_coefficients(
+            self.x, self.y
+        )
 
     def get_inputs(self):
         """
@@ -273,7 +285,7 @@ class MercerGP:
             print("FOUND NEGATIVE VARIANCE!")
         return distribution
 
-    def _calculate_posterior_coefficients(self) -> torch.Tensor:
+    def _calculate_posterior_coefficients(self, x, y) -> torch.Tensor:
         """
         Returns the non-random coefficients for the posterior mean according
         to the kernel as added to the Gaussian process, and under the data
@@ -283,16 +295,14 @@ class MercerGP:
         That is, these are the posterior mean coefficients related to
         (y-m)'(K(x, x) + σ^2I)^{-1}
         """
-        interim_matrix = self.kernel.get_interim_matrix_inverse(self.x)
+        interim_matrix = self.kernel.get_interim_matrix_inverse(x)
 
-        ksi = self.kernel.get_ksi(self.x)
+        ksi = self.kernel.get_ksi(x)
         posterior_coefficients = torch.einsum(
             "jm, mn -> jn", interim_matrix, ksi.t()
         )
-        these_outputs = self.get_outputs()
-        result = torch.einsum(
-            "i..., ji -> j", these_outputs, posterior_coefficients
-        )
+        # inner product the matrix parts with the outputs/residual parts
+        result = torch.einsum("i..., ji -> j", y, posterior_coefficients)
         return result
 
     def _get_sample_coefficients(self) -> torch.Tensor:
@@ -336,38 +346,56 @@ class MercerGPFourierPosterior(MercerGP):
     def __init__(
         self,
         basis: Basis,
+        rff_basis: RandomFourierFeatureBasis,
         order: int,
+        rff_order: int,
         dim: int,
         kernel: MercerKernel,
-        marginal_distribution_1: D.Distribution,  # first spectral frequency
-        marginal_distribution_2: D.Distribution,  # second spectral frequency
-        spectral_distribution: D.Distribution,
+        # spectral_distribution: D.Distribution,
         mean_function=lambda x: torch.zeros(x.shape),
     ):
         """
         Initialises the MercerGPFourierPosterior class.
         Key to this is the initialisation under the superclass to
         produce a standard Mercer posterior component,
-        and then a RFF GP for modelling the
+        and then a RFF GP for modelling the prior component.
         """
-        super().__init__(basis, order, dim, kernel, mean_function)
         self.rffgp = NonStationaryRFFGP(
-            basis,
-            order,
+            rff_basis,
+            rff_order,
             dim,
             # spectral_distribution,
             # marginal_distribution_1,  # first spectral frequency marginal
             # marginal_distribution_2,  # second spectral frequency marginal
             mean_function=lambda x: torch.zeros(x.shape),
         )
+        super().__init__(basis, order, dim, kernel, mean_function)
 
-    def gen_gp(self, x):
+    def gen_gp(self):
         # i.e., we are generating a Wilson(2020) style prior- and posterior
         # decomposition
         prior_component = self.rffgp.gen_gp()  # this should be f + ig
-        posterior_component = MercerGPSample(
-            self.basis, self.posterior_coefficients, self.mean_function
-        )
+
+        # evaluate the prior component at the inputs to get the posterior
+        # component residuals
+        # breakpoint()
+        if len(self.x) > 0 and len(self.y) > 0:
+            residuals = self.y - prior_component(self.x)
+            residual_posterior_coefficients = (
+                self._calculate_posterior_coefficients(self.x, residuals.real)
+            )
+            # breakpoint()
+            posterior_component = MercerGPSample(
+                self.basis, residual_posterior_coefficients, self.mean_function
+            )
+        else:
+            posterior_component = MercerGPSample(
+                self.basis,
+                self._calculate_posterior_coefficients(self.x, self.y),
+                self.mean_function,
+            )
+
+        # breakpoint()
         gp_sample = PosteriorGPSample(prior_component, posterior_component)
         return gp_sample
 
@@ -388,7 +416,7 @@ class RFFGP(MercerGP):
             "noise_parameter": torch.Tensor([0.0]),
             "variance_parameter": torch.Tensor([1.0]),
         }
-        basis = RandomFourierFeatureBasis(dim, order)
+        basis = RandomFourierFeatureBasis(dim, order, spectral_distribution)
         kernel = RandomFourierFeaturesKernel(
             order, spectral_distribution, dim, kernel_args
         )
@@ -407,6 +435,18 @@ class RFFGP(MercerGP):
             .squeeze()
         )
         return normal_rv
+
+    # def add_data(self, x, y):
+    # """
+    # Adds observation data for the given MercerGP.
+
+    # :param x: the inputs
+    # :param y: the outputs
+    # """
+    # # add the inputs and alter the coefficients
+    # self.x = torch.cat([self.x, x])
+    # self.y = torch.cat([self.y, y])
+    # return
 
 
 class NonStationaryRFFGP(RFFGP):
@@ -429,22 +469,23 @@ class NonStationaryRFFGP(RFFGP):
         mean_function=lambda x: torch.zeros(x.shape),
     ):
         # standard GP model parameters
+        if not order % 2 == 0:
+            raise ValueError(
+                "self.basis.w_dist should be a NonStationarySpectralDistribution"
+            )
+        if not isinstance(basis.w_dist, MercerSpectralDistribution):
+            raise TypeError(
+                "self.basis.w_dist should be a NonStationarySpectralDistribution"
+            )
         self.order = order
         self.dim = dim
         self.mean_function = mean_function
         self.basis = basis
 
-        if not isinstance(
-            self.basis.w_dist, NonStationarySpectralDistribution
-        ):
-            raise TypeError(
-                "self.basis.w_dist should be a NonStationarySpectralDistribution"
-            )
         # the 2-d spectral distribution from Yaglom's theorem in tandem with
         # the marginals are necessary to produce the right covariance.
 
     def gen_gp(self):
-        # full_basis = CompositeBasis(self.full_basis_1, self.full_basis_2)
         coefficients = self._get_sample_coefficients()
         return HilbertSpaceElement(
             self.basis,
@@ -458,8 +499,35 @@ class NonStationaryRFFGP(RFFGP):
         Non-stationary GP.
 
         The second coefficients are not repeated.
+        In the following, we denote the imaginary unit by j.
+
+        This is because the features are written as:
+            φ_i = cos(xω_1 + b) + cos(xω_2 + b)
+
+                     /  cos(xω_1 + b), i odd
+            φ'_i =  {
+                     \  cos(xω_2 + b), i even
+        and we sum to give:
+            h(x) = f(x) + ig(x)
+                 = Σ_^{R}i θ_i φ_i(x) + j Σ^{2R}_i θ'_i φ'_i(x)
+
+        This can be rearranged as:
+
+                  /  cos(xω_1 + β), 1 < i < R
+            φ_i= {
+                  \  cos(xω_2 + β), R < i < 2R
+
+            and summing with coefficients:
+            h(x) = f(x) + ig(x)
+                 = Σ^{2R}_i θ_i φ_i(x) + j Σ^{2R}_i θ'_i φ_i(x)
+                 = Σ^{2R}_i (θ_i + jθ'_i) φ_i(x)
+
+            where θ_R+i = θ_i, so that the sum captures each time
+            the appropriate basis function.
+
+        This function returns the random sample coefficients according to this
+        structure.
         """
-        # variance = torch.eye(self.order)
         normal_rv = (
             torch.distributions.Normal(
                 loc=torch.zeros(math.floor(self.order / 2)),
@@ -470,17 +538,23 @@ class NonStationaryRFFGP(RFFGP):
         )
         normal_rv_2 = (
             torch.distributions.Normal(
-                loc=torch.zeros(self.order / 2),
-                scale=torch.ones(self.order / 2),
+                loc=torch.zeros(self.order),
+                scale=torch.ones(self.order),
             )
             .sample()
             .squeeze()
         )
+        # repeat the real part's coefficients
         first_coeffics = torch.cat((normal_rv, normal_rv))
+
+        # don't repeat the imaginary part's coefficients
         second_coeffics = normal_rv_2
-        coeffics = torch.view_as_complex(
-            torch.vstack(first_coeffics, second_coeffics)
-        )
+
+        # combine to complex coefficients
+        # coeffics = torch.view_as_complex(
+        # torch.vstack((first_coeffics, second_coeffics)).t()
+        # )
+        coeffics = torch.complex(first_coeffics, second_coeffics)
         return coeffics
 
 
@@ -531,11 +605,17 @@ class PosteriorGPSample(HilbertSpaceElement):
         self.prior_component = prior_component
         self.posterior_component = posterior_component
 
-    def get_order(self):
+    def get_rff_order(self):
         return self.prior_component.get_order()
 
+    def get_order(self):
+        return self.posterior_component.get_order()
+
     def __call__(self, x):
+        # breakpoint()
+        # residuals = self.prior_component - self.posterior_component.
         return self.prior_component(x) + self.posterior_component(x)
+        # return self.posterior_component(x)
 
 
 class HermiteMercerGPSample(MercerGPSample):
