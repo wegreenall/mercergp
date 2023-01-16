@@ -23,6 +23,7 @@ class Likelihood:
         basis: Basis,
         input_sample: torch.Tensor,
         output_sample: torch.Tensor,
+        memoise=True,
     ):
         """
         Initialises the Likelihood class.
@@ -32,14 +33,16 @@ class Likelihood:
         instantiating this class.
 
         Parameters:
-            input_sample: The sample of data X.
             order:        The bandwidth of the kernel/no. of basis functions.
+            optimiser:   a torch.optim.Optimiser with the trainable parameters registered
+            basis: a Basis that allows for construction of the various matrices.
+            input_sample: The sample of data X.
+            output_sample: The (output) sample of data Y.
             # base_mean:    The constant μ; mean of the base distribution
             # base_var:     The constant σ^2; variance of the base distribution
             mean_coeffics:The vector of coefficients for the Karhunen-Loeve
             # alpha:
             # epsilon:
-            optimiser:
             mc_sample_size=10000:
         """
         self.order = order
@@ -50,6 +53,16 @@ class Likelihood:
         self.input_sample = input_sample
         self.sample_size = input_sample.shape[0]  # this should be alright
         self.output_sample = output_sample
+
+        """
+        For memoisation, we set the variables to be memoised to be None,
+        and check this when calling the functions that would produce
+        said variables
+        """
+        self.memoise = memoise  # whether or not to memoise certain variables
+        if memoise:
+            self.ksi_memo = None
+            self.ksiksi_memo = None
         pass
 
     def fit(self, parameters, iter_count=60000, convergence_eps=3e-3):
@@ -112,7 +125,7 @@ class Likelihood:
         """
         loss = self.evaluate_likelihood(parameters)
         self.optimiser.zero_grad()
-        loss.backward()
+        loss.backward(retain_graph=True)
         self.optimiser.step()
         return loss
 
@@ -140,7 +153,7 @@ class Likelihood:
     """
     The following are a sequence of helper methods to maintain a clean approach
     to the evaluation of the separate "components" of the likelihood function,
-    as well as to impose the single responsibility principle.
+    as well as to attempt to better impose the single responsibility principle.
     """
 
     def _det_and_exp(self, parameters) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -206,14 +219,41 @@ class Likelihood:
         )
         return exp_term
 
+    def _ksi(self, parameters):
+        """
+        Returns Ξ.
+
+        It does this by setting the parameters of the basis
+        and then evaluating the basis. The basis
+
+        i memoised,
+        Return shape: N x m
+        """
+        if not self.memoise:
+            return self.basis(self.input_sample).clone()
+        else:
+            if self.ksi_memo is None:
+                self.ksi_memo = self.basis(self.input_sample)
+            return self.ksi_memo
+
     def _ksiksi(self, parameters, ksi):
         """
-        Returns σ^2 (Ξ'Ξ)
+        Returns (Ξ'Ξ).
+
+
+        Return shape: m x m
         """
         if (ksi == math.inf).any():
             print("Infs in ksi, in evaluating the likelihood")
             breakpoint()
-        ksiksi = torch.einsum("ij, jk -> ik", ksi.t(), ksi)  # m x m
+        if not self.memoise:
+            ksiksi = torch.einsum("ij, jk -> ik", ksi.t(), ksi)  # m x m
+        else:
+            if self.ksiksi_memo is None:
+                self.ksiksi_memo = torch.einsum(
+                    "ij, jk -> ik", ksi.t(), ksi
+                ).clone()
+            ksiksi = self.ksiksi_memo
 
         try:
             returnval = ksiksi
@@ -250,16 +290,6 @@ class Likelihood:
         )
         return term_1 - term_2
 
-    def _ksi(self, parameters):
-        """
-        Returns Ξ.
-
-        It does this by setting the parameters of the basis
-        and then evaluating the basis.
-        Return shape: N x m
-        """
-        return self.basis(self.input_sample)
-
     def _lambdainv(self, parameters):
         """
         returns the diagonal matrix λ^-1.
@@ -289,8 +319,11 @@ class MercerLikelihood(Likelihood):
         input_sample: torch.Tensor,
         output_sample: torch.Tensor,
         eigenvalue_generator: Callable,
+        memoise=True,
     ):
-        super().__init__(order, optimiser, basis, input_sample, output_sample)
+        super().__init__(
+            order, optimiser, basis, input_sample, output_sample, memoise
+        )
         self.eigenvalue_generator = eigenvalue_generator
 
     def _eigenvalues(self, parameters):

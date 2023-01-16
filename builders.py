@@ -46,6 +46,7 @@ def train_mercer_params(
     optimiser: torch.optim.Optimizer,
     eigenvalue_gen: EigenvalueGenerator,
     dim=1,
+    memoise=True,
 ) -> dict:
     """
     Given:
@@ -67,6 +68,7 @@ def train_mercer_params(
         input_sample,
         output_sample,
         eigenvalue_gen,
+        memoise,
     )
     new_parameters = parameters.copy()
     mgp_likelihood.fit(new_parameters)
@@ -237,13 +239,14 @@ if __name__ == "__main__":
     test_sample_shape = torch.Size([test_sample_size])
 
     # hyperparameters
-    order = 4
-    rff_order = 2700
+    order = 8
+    rff_order = 3700
+    rff_frequency = 2000
     dimension = 1
-    l_se = torch.Tensor([[0.3]])
+    l_se = torch.Tensor([[0.6]])
     sigma_se = torch.Tensor([1.0])
     prec = torch.Tensor([1.0])
-    sigma_e = torch.Tensor([0.3])
+    sigma_e = torch.Tensor([0.2])
     kernel_args = {
         "ard_parameter": l_se,
         "variance_parameter": sigma_se,
@@ -258,6 +261,7 @@ if __name__ == "__main__":
         kernel_args,
     )
     eigenvalue_generator = SmoothExponentialFasshauer(order)
+
     if build_mercer:
         mercer_gp = build_mercer_gp(
             kernel_args, order, basis, eigenvalue_generator
@@ -282,12 +286,19 @@ if __name__ == "__main__":
             rff_order,
             basis,
             eigenvalue_generator,
-            frequency=3500,
+            frequency=rff_frequency,
         )
         inputs = D.Normal(0.0, 1.0).sample(test_sample_shape)
         outputs = test_function(inputs) + sigma_e * D.Normal(0.0, 1.0).sample(
             inputs.shape
         )
+
+        # mercer
+        # mercer_gp.add_data(inputs, outputs)
+        # posterior_sample = mercer_gp_fourier_posterior.gen_gp()
+        # sample_data = posterior_sample(x_axis)
+
+        # fourier posterior mercer
         mercer_gp_fourier_posterior.add_data(inputs, outputs)
         posterior_sample = mercer_gp_fourier_posterior.gen_gp()
         sample_data = posterior_sample(x_axis)
@@ -319,12 +330,13 @@ if __name__ == "__main__":
         )
 
         inputs = D.Normal(0.0, 1.0).sample(test_sample_shape)
-        outputs = test_function(inputs) + sigma_se * D.Normal(0.0, 1.0).sample(
+        outputs = test_function(inputs) + sigma_e * D.Normal(0.0, 1.0).sample(
             inputs.shape
         )
+        mercer_gp.add_data(inputs, outputs)
         mercer_gp_fourier_posterior.add_data(inputs, outputs)
-        posterior_sample = mercer_gp_fourier_posterior.gen_gp()
-        sample_data = posterior_sample(x_axis)
+        fourier_posterior_sample = mercer_gp_fourier_posterior.gen_gp()
+        fourier_sample_data = fourier_posterior_sample(x_axis)
 
         # plt.plot(x_axis, sample_data.real)
         # if sample_data.is_complex():

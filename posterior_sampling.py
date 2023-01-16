@@ -276,7 +276,7 @@ if __name__ == "__main__":
     kernel = MercerKernel(order, basis, eigenvalues, params)
     begin = -4
     end = 4
-    frequency = 8000
+    frequency = 2000
     fft_data = kernel_fft(kernel, begin, end, frequency)
     fft_data_2 = kernel_fft_decomposed(kernel, begin, end, frequency)
     integer = True
@@ -290,6 +290,6 @@ if __name__ == "__main__":
         )
 
     sample = spectral_dist.sample(torch.Size([8000]))
-    plt.hist(sample[:, 0].numpy().flatten(), bins=87)
-    plt.hist(sample[:, 1].numpy().flatten(), bins=87)
+    plt.hist(sample.numpy().flatten(), bins=87)
+    # plt.hist(sample[:, 1].numpy().flatten(), bins=87)
     plt.show()
