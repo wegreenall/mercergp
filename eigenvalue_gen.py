@@ -3,6 +3,34 @@ from ortho.basis_functions import smooth_exponential_eigenvalues_fasshauer
 import matplotlib.pyplot as plt
 import math
 from termcolor import colored
+from typing import Union, Iterable
+
+
+def eigenvalue_reshape(eigenvalue_tensors: torch.Tensor):
+    """For a d-length list of tensors of eigenvalues, returns the einsum resulting from:
+    torch.einsum("na, nb, nc, nd -> nabcd", tensor[:,:,0], tensor[:,:,1], tensor[:,:,2], tensor[:,:,3])
+    """
+    einsum_string = ""
+    used_chars = ""
+    i = 0
+    if len(eigenvalue_tensors.shape) > 1:
+        eigenvalue_tensor_count = eigenvalue_tensors.shape[1]
+        for i in range(eigenvalue_tensor_count - 1):
+            einsum_string += chr(ord("a") + i) + ","
+            used_chars += chr(ord("a") + i)
+        einsum_string += (
+            chr(ord("a") + i + 1) + "-> " + used_chars + chr(ord("a") + i + 1)
+        )
+        result = torch.einsum(
+            einsum_string,
+            *[eigenvalue_tensors[:, i] for i in range(eigenvalue_tensor_count)]
+        )
+    else:
+        # if there aren't more than one dimension, this would like to return
+        # the "product" across a zero dimension. this is obviously just the
+        # identity.
+        result = eigenvalue_tensors
+    return result
 
 
 def harmonic(m, k):
@@ -33,8 +61,9 @@ class EigenvalueGenerator:
     for the eigenvalues.
     """
 
-    def __init__(self, order):
+    def __init__(self, order, dimension):
         self.order = order
+        self.dimension = dimension
 
     def __call__(self, parameters: dict) -> torch.Tensor:
         """
@@ -42,7 +71,7 @@ class EigenvalueGenerator:
         given the dictionary of parameters 'parameters'.
         """
         self.check_params(parameters)
-        raise NotImplementedError("Please use a subclass of this class")
+        # raise NotImplementedError("Please use a subclass of this class")
 
     def check_params(self, parameters: dict):
         for key in self.required_params:
@@ -59,7 +88,19 @@ class SmoothExponentialFasshauer(EigenvalueGenerator):
     required_parameters = ["ard_parameter", "precision_parameter"]
 
     def __call__(self, parameters: dict) -> torch.Tensor:
-        return smooth_exponential_eigenvalues_fasshauer(self.order, parameters)
+        # if we are passed a list, then it will be for multiple dimensions
+        # for parameter in self.required_parameters:
+        # if self.dimension != parameters[parameter].shape[-1]:
+        # raise ValueError(
+        # "The parameter " + parameter + " has the wrong shape"
+        # )
+
+        eigens = smooth_exponential_eigenvalues_fasshauer(
+            self.order, parameters
+        )  # m x dim
+
+        product_eigens = eigenvalue_reshape(eigens)
+        return torch.reshape(product_eigens, (self.order ** self.dimension,))
 
 
 class PolynomialEigenvalues(EigenvalueGenerator):
@@ -147,7 +188,8 @@ class FavardEigenvalues(EigenvalueGenerator):
 
 if __name__ == "__main__":
     order = 10
-    eigengen = SmoothExponentialFasshauer(order)
+    dimension = 1
+    eigengen = SmoothExponentialFasshauer(order, dimension)
     terms = 80
     numbers = list(range(1, terms))
     harmonics = [harmonic(m, 1) for m in numbers]
