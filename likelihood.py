@@ -405,7 +405,9 @@ if __name__ == "__main__":
     log_gammas.requires_grad = True
 
     # basis_function = OrthogonalBasisFunction(
-    basis_polynomial = OrthogonalPolynomial(order, betas, gammas)
+    basis_polynomial = OrthogonalPolynomial(
+        order, betas, torch.exp(log_gammas)
+    )
     # order, betas, torch.exp(log_gammas)
     # )
     # params_from_net = basis_function.med.moment_net.parameters()
