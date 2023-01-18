@@ -327,10 +327,6 @@ class MercerKernel(StationaryKernel):
         # should be of size (input_size, degree), (test_size, degree)
         input_ksi = self.get_ksi(input_points)
         test_ksi = self.get_ksi(test_points).T
-        # I don't know why thsi was in here omg
-        # input_ksi *= self.kernel_args["noise_parameter"]
-        # test_ksi *= self.kernel_args["noise_parameter"]
-
         diag_l = torch.diag(self.eigenvalues)
         # intermediate_term = torch.mm(input_ksi, diag_l)
 
@@ -340,6 +336,8 @@ class MercerKernel(StationaryKernel):
         # matrix = torch.zeros(input_ksi.shape[0], test_ksi.shape[1])
         # for i,e in enumerate(self.eigenvalues):
         #     matrix += e * torch.outer(input_ksi[:,i] , test_ksi[i, :])
+        if len(input_ksi.shape) != 2 or len(test_ksi.shape) != 2:
+            breakpoint()
         kernel = torch.einsum("ij,jk,kl -> il", input_ksi, diag_l, test_ksi)
         return kernel
 
@@ -353,21 +351,11 @@ class MercerKernel(StationaryKernel):
 
         : param input_points: the set of input points at which to
         evaluate the basis functions
+
+        we create this method in case it is necessary to complete extra pre-
+        or post- calculations on this basis
         """
-
-        if len(input_points.shape) > 1:
-            input_points = input_points.squeeze(1)
-
-        degree = self.order  # i.e. the degree of the approximation
-        ksi = torch.zeros([input_points.shape[0], degree])  # init tensor
-
-        # for deg in range(degree):
-        # ksi[:, deg] = self.basis_function(input_points,
-        # deg,
-        # self.kernel_args)
-
         ksi = self.basis(input_points)
-
         return ksi
 
     def kernel_inverse(self, input_points: torch.Tensor):
@@ -408,7 +396,6 @@ class MercerKernel(StationaryKernel):
         interim_matrix = ksiksi + (sigma_e ** 2) * inv_diag_l
         # ( σ^(2) Λ^-1 + Ξ'Ξ)^(-1)
         interim_inv = torch.inverse(interim_matrix)
-        # breakpoint()
         return interim_inv
 
     def set_eigenvalues(self, new_eigenvalues):
@@ -522,6 +509,7 @@ class RandomFourierFeaturesKernel(MercerKernel):
         return z
 
     def get_ksi(self, input_points):
+        breakpoint()
         return self.basis(input_points)
 
     def kernel_inverse(self, input_points):
