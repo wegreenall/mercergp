@@ -5,8 +5,8 @@ import torch
 import mercergp.kernels as K
 from ortho.basis_functions import (
     Basis,
-    smooth_exponential_basis,
-    smooth_exponential_eigenvalues,
+    smooth_exponential_basis_fasshauer as smooth_exponential_basis,
+    smooth_exponential_eigenvalues_fasshauer as smooth_exponential_eigenvalues,
 )
 
 
