@@ -12,7 +12,9 @@ from ortho.basis_functions import (
 )
 from mercergp.posterior_sampling import MercerSpectralDistribution
 from mercergp.kernels import MercerKernel, RandomFourierFeaturesKernel
+from mercergp.eigenvalue_gen import SmoothExponentialFasshauer
 import matplotlib.pyplot as plt
+from termcolor import colored
 
 
 class HilbertSpaceElement:
@@ -34,7 +36,6 @@ class HilbertSpaceElement:
         """
         Evaluates the Hilbert Space element at the given inputs x.
         """
-        # breakpoint()
         if self.coefficients.is_complex():
             return torch.inner(
                 self.coefficients,
@@ -168,7 +169,9 @@ class MercerGP:
         Returns the posterior mean function.
         """
         return MercerGPSample(
-            self.basis, self.posterior_coefficients, self.mean_function
+            self.basis,
+            self._calculate_posterior_coefficients(self.x, self.y),
+            self.mean_function,
         )
 
     def get_order(self) -> int:
@@ -221,7 +224,6 @@ class MercerGP:
 
         # add jitter for positive definiteness
         posterior_predictive_variance += 0.00001 * torch.eye(len(test_points))
-        # breakpoint()
         try:
             distribution = D.MultivariateNormal(
                 posterior_predictive_mean_evaluation,
@@ -254,11 +256,6 @@ class MercerGP:
         posterior_predictive_mean_evaluation = posterior_predictive_mean(
             test_points
         )
-        # print(
-        # "mercer posterior predictive mean shape:",
-        # posterior_predictive_mean_evaluation.shape,
-        # )
-        # breakpoint()
         inputs = self.get_inputs()
 
         # now calculate the variance
@@ -295,8 +292,8 @@ class MercerGP:
         That is, these are the posterior mean coefficients related to
         (y-m)'(K(x, x) + σ^2I)^{-1}
         """
-        interim_matrix = self.kernel.get_interim_matrix_inverse(x)
 
+        interim_matrix = self.kernel.get_interim_matrix_inverse(x)
         ksi = self.kernel.get_ksi(x)
         posterior_coefficients = torch.einsum(
             "jm, mn -> jn", interim_matrix, ksi.t()
@@ -378,13 +375,11 @@ class MercerGPFourierPosterior(MercerGP):
 
         # evaluate the prior component at the inputs to get the posterior
         # component residuals
-        # breakpoint()
         if len(self.x) > 0 and len(self.y) > 0:
             residuals = self.y - prior_component(self.x)
             residual_posterior_coefficients = (
                 self._calculate_posterior_coefficients(self.x, residuals.real)
             )
-            # breakpoint()
             posterior_component = MercerGPSample(
                 self.basis, residual_posterior_coefficients, self.mean_function
             )
@@ -395,7 +390,6 @@ class MercerGPFourierPosterior(MercerGP):
                 self.mean_function,
             )
 
-        # breakpoint()
         gp_sample = PosteriorGPSample(prior_component, posterior_component)
         return gp_sample
 
@@ -612,8 +606,6 @@ class PosteriorGPSample(HilbertSpaceElement):
         return self.posterior_component.get_order()
 
     def __call__(self, x):
-        # breakpoint()
-        # residuals = self.prior_component - self.posterior_component.
         return self.prior_component(x) + self.posterior_component(x)
         # return self.posterior_component(x)
 
@@ -762,10 +754,11 @@ class HermiteMercerGP(MercerGP):
 
 
 if __name__ == "__main__":
-    """ """
-    plot_example = True
-    test_predictive_densities = True
+    plot_example = False
+    test_predictive_densities = False
     test_single_predictive_density = False
+    test_multidim = True
+
     # parameters for the test
     sample_size = 300
 
@@ -862,7 +855,6 @@ if __name__ == "__main__":
         # plt.plot(
         # inputs, predictive_density.loc[0].numpy().flatten(), color="purple"
         # )
-        # breakpoint()
         print("Predictive density:", predictive_density)
 
     if test_single_predictive_density:
@@ -871,3 +863,46 @@ if __name__ == "__main__":
             test_point
         )
         print("Predictive Density Single:", predictive_density_single)
+
+    if test_multidim:
+        noise_dist = D.Normal(0.0, 0.1)
+
+        def test_function_2d(x: torch.Tensor):
+            return torch.sin(x[:, 0]) + torch.cos(x[:, 1])
+
+        eigenvalue_gen = SmoothExponentialFasshauer(order, 2)
+        eigenvalues = eigenvalue_gen((mercer_args, mercer_args))
+        # basis_1 = Basis(
+        # smooth_exponential_basis_fasshauer, 2, order, mercer_args
+        # )
+        basis = Basis(
+            (
+                smooth_exponential_basis_fasshauer,
+                smooth_exponential_basis_fasshauer,
+            ),
+            2,
+            order,
+            mercer_args,
+        )
+        fineness = 500
+        x = torch.linspace(-5, 5, fineness)
+        y = torch.linspace(-5, 5, fineness)
+        inputs = torch.vstack((x, y)).t()
+        # plt.plot(basis(inputs))
+        # plt.show()
+        test_kernel_2d = MercerKernel(order, basis, eigenvalues, mercer_args)
+        results = test_kernel_2d(torch.zeros(1, 2), inputs)
+
+        plt.plot(results[0])
+        plt.show()
+
+        multidim_mercer_gp = MercerGP(basis, order, 2, test_kernel_2d)
+        multidim_mercer_gp.add_data(
+            inputs, test_function_2d(inputs) + noise_dist.sample((fineness,))
+        )
+        print(colored("ABOUT TO DO IT!", "red"))
+        gp_sample = multidim_mercer_gp.gen_gp()
+        # results = test_kernel_2d(torch.zeros(1, 2), inputs)
+
+        # plt.plot(results[0])
+        # plt.show()
