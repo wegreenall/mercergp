@@ -48,6 +48,10 @@ class MercerSpectralDistribution(D.Categorical):
         the right correlation (like a 2-d probability table). Then we can use
         modulo and floor division operators to extract the 2-d sample from the
         stride and step of the sample with respect to the frequency.
+
+        Leaving the sample at integer values leads to periodic samples.
+        As a result it is recommended to use either the histogram sampling
+        or the Gaussian sampling.
         """
         categorical_sample = super().sample(
             torch.Size([math.floor(feature_count[0] / 2), 1])
@@ -69,12 +73,26 @@ class HistogramSpectralDistribution(MercerSpectralDistribution):
         Histogram sampling from the spectral distribution involves constructing
         a standard discrete integer frequency distribution (as represented by
         the MercerSpectralDistribution class), and adding Unif[-0.5, 0.5]
-        random variables to the sample along the ω_1 and ω_2 axis.
+        random variables to the sample along the ω_1 and ω_2 axes.
         """
         sample = super().sample(feature_count)
         sample = sample + D.Uniform(-0.5, 0.5).sample(feature_count).unsqueeze(
             1
         )
+        return sample
+
+
+class GaussianMixtureSpectralDistribution(MercerSpectralDistribution):
+    def sample(self, feature_count: torch.Size):
+        """
+        Gaussian mixture sampling from the spectral distribution involves constructing
+        a standard discrete integer frequency distribution (as represented by
+        the MercerSpectralDistribution class), and adding Gaussian distributed
+        random variables to the sample along the ω_1 and ω_2 axes.
+        The result should lead to a smoothing and perhaps a decrease in smaller frequencies...
+        """
+        sample = super().sample(feature_count)
+        sample = sample + D.Normal(0.0, 0.5).sample(feature_count).unsqueeze(1)
         return sample
 
 
@@ -206,8 +224,8 @@ def integer_spectral_distribution(
     """
     # generate a matrix of spectral density evaluations
     spectral_density = kernel_fft_decomposed(kernel, begin, end, frequency)
-    plt.imshow(spectral_density)
-    plt.show()
+    # plt.imshow(spectral_density)
+    # plt.show()
     distribution = MercerSpectralDistribution(frequency, spectral_density)
     return distribution
 
@@ -225,6 +243,24 @@ def histogram_spectral_distribution(
     # generate a matrix of spectral density evaluations
     spectral_density = kernel_fft_decomposed(kernel, begin, end, frequency)
     distribution = HistogramSpectralDistribution(frequency, spectral_density)
+    return distribution
+
+
+def gaussian_spectral_distribution(
+    kernel: MercerKernel,
+    begin: torch.Tensor,
+    end: torch.Tensor,
+    frequency: int,
+) -> D.Distribution:
+    """
+    Given a kernel, returns a spectral distribution approximation
+    via histogram sampling and a 2-d FFT.
+    """
+    # generate a matrix of spectral density evaluations
+    spectral_density = kernel_fft_decomposed(kernel, begin, end, frequency)
+    distribution = GaussianMixtureSpectralDistribution(
+        frequency, spectral_density
+    )
     return distribution
 
 

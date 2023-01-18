@@ -11,7 +11,11 @@ from mercergp.eigenvalue_gen import SmoothExponentialFasshauer
 from mercergp.likelihood import MercerLikelihood
 from mercergp.kernels import MercerKernel
 from mercergp.MGP import MercerGP, MercerGPFourierPosterior
-from mercergp.posterior_sampling import histogram_spectral_distribution
+from mercergp.posterior_sampling import (
+    histogram_spectral_distribution,
+    integer_spectral_distribution,
+    gaussian_spectral_distribution,
+)
 
 
 def build_mercer_gp(
@@ -28,6 +32,7 @@ def build_mercer_gp(
         - precision parameter,
         - noise_parameter
     """
+    # breakpoint()
     eigenvalues = eigenvalue_generator(parameters)
 
     # build the kernel
@@ -108,7 +113,7 @@ def train_smooth_exponential_mercer_params(
     # input_sample, weight_function, order
     # )
     basis = bf.Basis(
-        bf.smooth_exponential_basis_fasshauer, 1, order, parameters
+        bf.smooth_exponential_basis_fasshauer, dim, order, parameters
     )
     mgp_likelihood = MercerLikelihood(
         order,
@@ -162,6 +167,7 @@ def build_mercer_gp_fourier_posterior(
     begin=-5,
     end=5,
     frequency=1000,
+    spectral_distribution_type="gaussian",
 ) -> MercerGPFourierPosterior:
     """
     parameters requires in params:
@@ -175,9 +181,18 @@ def build_mercer_gp_fourier_posterior(
     kernel = MercerKernel(order, basis, eigenvalues, parameters)
 
     # build the rff_basis
-    spectral_distribution = histogram_spectral_distribution(
-        kernel, begin, end, frequency
-    )
+    if spectral_distribution_type == "histogram":
+        spectral_distribution = histogram_spectral_distribution(
+            kernel, begin, end, frequency
+        )
+    elif spectral_distribution_type == "integer":
+        spectral_distribution = integer_spectral_distribution(
+            kernel, begin, end, frequency
+        )
+    elif spectral_distribution_type == "gaussian":
+        spectral_distribution = gaussian_spectral_distribution(
+            kernel, begin, end, frequency
+        )
     rff_basis = bf.RandomFourierFeatureBasis(
         dim, rff_order, spectral_distribution
     )
