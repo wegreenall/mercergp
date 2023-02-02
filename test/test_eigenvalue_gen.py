@@ -121,15 +121,20 @@ class TestMultivariateSmoothExponentialFasshauerEigenvalueGenerator(
     def setUp(self):
         self.order = 10
         self.dimension = 2
-        self.precision_parameter = torch.eye(self.dimension)
-        self.ard_parameter = torch.eye(self.dimension)
+        self.precision_parameter = torch.Tensor(
+            [[1.0]]
+        )  # torch.eye(self.dimension)
+        self.ard_parameter = torch.Tensor([[1.0]])  # torch.eye(self.dimension)
+
         self.eigenvalue_generator = SmoothExponentialFasshauer(
             self.order, self.dimension
         )
-        self.params = {
-            "precision_parameter": self.precision_parameter,
-            "ard_parameter": self.ard_parameter,
-        }
+        self.params = 2 * (
+            {
+                "precision_parameter": self.precision_parameter,
+                "ard_parameter": self.ard_parameter,
+            },
+        )
         pass
 
     def test_shape(self):

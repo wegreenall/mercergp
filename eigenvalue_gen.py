@@ -61,7 +61,7 @@ class EigenvalueGenerator:
     for the eigenvalues.
     """
 
-    def __init__(self, order, dimension):
+    def __init__(self, order, dimension=1):
         self.order = order
         self.dimension = dimension
 
@@ -87,20 +87,31 @@ class EigenvalueGenerator:
 class SmoothExponentialFasshauer(EigenvalueGenerator):
     required_parameters = ["ard_parameter", "precision_parameter"]
 
-    def __call__(self, parameters: dict) -> torch.Tensor:
+    def __call__(self, parameters: Union[list, dict]) -> torch.Tensor:
         # if we are passed a list, then it will be for multiple dimensions
         # for parameter in self.required_parameters:
         # if self.dimension != parameters[parameter].shape[-1]:
         # raise ValueError(
         # "The parameter " + parameter + " has the wrong shape"
         # )
+        if isinstance(parameters, dict):
+            parameters = (parameters,)
 
-        eigens = smooth_exponential_eigenvalues_fasshauer(
-            self.order, parameters
-        )  # m x dim
+        if len(parameters) != self.dimension:
+            raise ValueError(
+                "The number of parameter dicts passed must match the dimension parameter"
+            )
 
-        product_eigens = eigenvalue_reshape(eigens)
-        return torch.reshape(product_eigens, (self.order ** self.dimension,))
+        eigens_tensor = torch.zeros(self.order, self.dimension)
+        for d in range(self.dimension):
+            eigens = smooth_exponential_eigenvalues_fasshauer(
+                self.order, parameters[d]
+            )  # m x dim
+            eigens_tensor[:, d] = eigens
+
+        product_eigens = eigenvalue_reshape(eigens_tensor)
+        result = torch.reshape(product_eigens, (self.order ** self.dimension,))
+        return result
 
 
 class PolynomialEigenvalues(EigenvalueGenerator):

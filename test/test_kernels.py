@@ -8,6 +8,7 @@ from ortho.basis_functions import (
     smooth_exponential_basis_fasshauer as smooth_exponential_basis,
     smooth_exponential_eigenvalues_fasshauer as smooth_exponential_eigenvalues,
 )
+from mercergp.eigenvalue_gen import SmoothExponentialFasshauer
 
 
 class TestStationaryKernels(unittest.TestCase):
@@ -75,6 +76,8 @@ class TestMercerKernel(unittest.TestCase):
             "variance_parameter": torch.Tensor([1]),
         }
         self.order = 10
+
+        # 1d tests
         self.basis = Basis(
             smooth_exponential_basis, 1, self.order, self.mercer_kernel_args
         )
@@ -82,9 +85,27 @@ class TestMercerKernel(unittest.TestCase):
         self.eigenvalues = smooth_exponential_eigenvalues(
             self.order, self.mercer_kernel_args
         )
-
         self.kernel = K.MercerKernel(
             self.order, self.basis, self.eigenvalues, self.mercer_kernel_args
+        )
+
+        # 2d tests
+        self.basis_2d = Basis(
+            (smooth_exponential_basis, smooth_exponential_basis),
+            2,
+            self.order,
+            (self.mercer_kernel_args, self.mercer_kernel_args),
+        )
+        eigenvalue_generator = SmoothExponentialFasshauer(self.order, 2)
+        self.eigenvalues_2d = eigenvalue_generator(
+            (self.mercer_kernel_args, self.mercer_kernel_args)
+        )
+
+        self.kernel_2d = K.MercerKernel(
+            self.order,
+            self.basis_2d,
+            self.eigenvalues_2d,
+            self.mercer_kernel_args,
         )
         pass
 
@@ -100,12 +121,11 @@ class TestMercerKernel(unittest.TestCase):
         result = self.kernel(test_inputs, test_inputs)
         self.assertEqual(result.shape, torch.Size([10, 10]))
 
-    @unittest.skip("Not Implemented for 2d at the moment...")
     def test_2d(self):
         test_inputs = torch.Tensor(
             list(zip(torch.linspace(0, 1, 10), torch.linspace(1, 2, 10)))
         )
-        result = self.kernel(test_inputs, test_inputs)
+        result = self.kernel_2d(test_inputs, test_inputs)
         self.assertEqual(result.shape, torch.Size([10, 10]))
 
     def test_inverse(self):

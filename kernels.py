@@ -338,7 +338,12 @@ class MercerKernel(StationaryKernel):
         #     matrix += e * torch.outer(input_ksi[:,i] , test_ksi[i, :])
         if len(input_ksi.shape) != 2 or len(test_ksi.shape) != 2:
             breakpoint()
-        kernel = torch.einsum("ij,jk,kl -> il", input_ksi, diag_l, test_ksi)
+        try:
+            kernel = torch.einsum(
+                "ij,jk,kl -> il", input_ksi, diag_l, test_ksi
+            )
+        except RuntimeError:
+            breakpoint()
         return kernel
 
     def get_ksi(self, input_points):
@@ -509,7 +514,6 @@ class RandomFourierFeaturesKernel(MercerKernel):
         return z
 
     def get_ksi(self, input_points):
-        breakpoint()
         return self.basis(input_points)
 
     def kernel_inverse(self, input_points):

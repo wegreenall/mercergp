@@ -71,7 +71,7 @@ class MercerGP:
         order: int,
         dim: int,
         kernel: MercerKernel,
-        mean_function=lambda x: torch.zeros(x.shape),
+        mean_function=lambda x: torch.zeros(x.shape[0]),
     ):
         """
         : param basis: a Basis class instance
@@ -210,20 +210,22 @@ class MercerGP:
             test_points
         )
         inputs = self.get_inputs()
+        # breakpoint()
 
         # now calculate the variance
         posterior_predictive_variance = self.kernel(
             test_points, test_points
-        ) - self.kernel(
-            test_points, self.get_inputs()
-        ) @ self.kernel.kernel_inverse(
-            inputs
-        ) @ self.kernel(
-            inputs, test_points
+        ) - (
+            self.kernel(test_points, inputs)
+            @ self.kernel.kernel_inverse(inputs)
+            @ self.kernel(inputs, test_points)
         )
 
         # add jitter for positive definiteness
-        posterior_predictive_variance += 0.00001 * torch.eye(len(test_points))
+        posterior_predictive_variance = (
+            posterior_predictive_variance + 0.01 * torch.eye(len(test_points))
+        )
+        # print(torch.det(posterior_predictive_variance))
         try:
             distribution = D.MultivariateNormal(
                 posterior_predictive_mean_evaluation,
@@ -232,7 +234,7 @@ class MercerGP:
         except ValueError:
             distribution = D.MultivariateNormal(
                 posterior_predictive_mean_evaluation,
-                torch.abs(posterior_predictive_variance),
+                torch.abs(torch.diag(posterior_predictive_variance)),
             )
             print("FOUND NEGATIVE VARIANCE!")
         return distribution
@@ -587,7 +589,9 @@ class MercerGPSample(HilbertSpaceElement):
         """
         Adds the mean function evaluation to the MercerGPSample
         """
-        return super().__call__(x) + self.mean_function(x)
+        gp_component = super().__call__(x)
+        mean_component = self.mean_function(x)
+        return gp_component + mean_component
 
 
 class PosteriorGPSample(HilbertSpaceElement):

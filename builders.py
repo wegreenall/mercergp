@@ -32,11 +32,21 @@ def build_mercer_gp(
         - precision parameter,
         - noise_parameter
     """
-    # breakpoint()
     eigenvalues = eigenvalue_generator(parameters)
 
     # build the kernel
-    kernel = MercerKernel(order, basis, eigenvalues, parameters)
+    """
+    When in multiple dimensions, the resulting parameters are a tuple or
+    list containing dicts, one for each dimension (in the current setup).
+    However the kernel needs to be given a dict of parameter to get
+    e.g. the noise parameter. As a result, we just pass it the first one
+    under the assumption that the noise parameter will be given as the same in each
+    dimension (since it's noise on the output rather than the input).
+    """
+    if dim != 1:
+        kernel = MercerKernel(order, basis, eigenvalues, parameters[0])
+    else:
+        kernel = MercerKernel(order, basis, eigenvalues, parameters)
 
     # build the gp
     mgp = MercerGP(basis, order, dim, kernel)
