@@ -62,6 +62,7 @@ def train_mercer_params(
     eigenvalue_gen: EigenvalueGenerator,
     dim=1,
     memoise=True,
+    iter_count=60000,
 ) -> dict:
     """
     Given:
@@ -86,7 +87,7 @@ def train_mercer_params(
         memoise,
     )
     new_parameters = parameters.copy()
-    mgp_likelihood.fit(new_parameters)
+    mgp_likelihood.fit(new_parameters, iter_count=iter_count)
     for param in filter(
         lambda param: isinstance(new_parameters[param], torch.Tensor),
         new_parameters,
@@ -104,6 +105,7 @@ def train_smooth_exponential_mercer_params(
     output_sample: torch.Tensor,
     optimiser: torch.optim.Optimizer,
     dim=1,
+    iter_count=60000,
 ) -> dict:
     """
     Given:
@@ -134,8 +136,13 @@ def train_smooth_exponential_mercer_params(
         SmoothExponentialFasshauer(order),
     )
     new_parameters = parameters.copy()
-    mgp_likelihood.fit(new_parameters)
-    for param in new_parameters:
+    # breakpoint()
+    mgp_likelihood.fit(new_parameters, iter_count)
+    for param in filter(
+        lambda param: isinstance(new_parameters[param], torch.Tensor),
+        new_parameters,
+    ):
+        print(new_parameters[param])
         new_parameters[param] = new_parameters[param].detach()
     return new_parameters
 
@@ -166,30 +173,34 @@ def build_smooth_exponential_mercer_gp(
     return mgp
 
 
-def build_mercer_gp_fourier_posterior(
+def build_smooth_exponential_mercer_gp_fourier_posterior(
     parameters: dict,
     order: int,
-    rff_order: int,
-    basis: bf.Basis,
     # input_sample: torch.Tensor,
-    eigenvalue_generator: EigenvalueGenerator,
     dim=1,
     begin=-5,
     end=5,
     frequency=1000,
     spectral_distribution_type="gaussian",
-) -> MercerGPFourierPosterior:
+    rff_order: int = 5000,
+    prior_variance=1.0,
+):
     """
     parameters requires in params:
         - ard_parameter,
         - precision parameter,
         - noise_parameter
     """
+    basis = bf.Basis(
+        bf.smooth_exponential_basis_fasshauer, dim, order, parameters
+    )
+    eigenvalue_generator = SmoothExponentialFasshauer(order)
+    eigenvalues = eigenvalue_generator(parameters)
 
     # build the kernel
-    eigenvalues = eigenvalue_generator(parameters)
     kernel = MercerKernel(order, basis, eigenvalues, parameters)
 
+    print("frequency in build_mercer_gp_fourier_posterior", frequency)
     # build the rff_basis
     if spectral_distribution_type == "histogram":
         spectral_distribution = histogram_spectral_distribution(
@@ -208,7 +219,68 @@ def build_mercer_gp_fourier_posterior(
     )
     # build the gp
     mgp = MercerGPFourierPosterior(
-        basis, rff_basis, order, rff_order, dim, kernel
+        basis,
+        rff_basis,
+        order,
+        rff_order,
+        dim,
+        kernel,
+        prior_variance=prior_variance,
+    )
+    return mgp
+
+
+def build_mercer_gp_fourier_posterior(
+    parameters: dict,
+    order: int,
+    basis: bf.Basis,
+    # input_sample: torch.Tensor,
+    eigenvalue_generator: EigenvalueGenerator,
+    dim=1,
+    begin=-5,
+    end=5,
+    frequency=1000,
+    spectral_distribution_type="gaussian",
+    rff_order: int = 5000,
+    prior_variance=1.0,
+) -> MercerGPFourierPosterior:
+    """
+    parameters requires in params:
+        - ard_parameter,
+        - precision parameter,
+        - noise_parameter
+    """
+
+    # build the kernel
+    eigenvalues = eigenvalue_generator(parameters)
+    kernel = MercerKernel(order, basis, eigenvalues, parameters)
+
+    print("frequency in build_mercer_gp_fourier_posterior", frequency)
+    # build the rff_basis
+    if spectral_distribution_type == "histogram":
+        spectral_distribution = histogram_spectral_distribution(
+            kernel, begin, end, frequency
+        )
+    elif spectral_distribution_type == "integer":
+        spectral_distribution = integer_spectral_distribution(
+            kernel, begin, end, frequency
+        )
+    elif spectral_distribution_type == "gaussian":
+        spectral_distribution = gaussian_spectral_distribution(
+            kernel, begin, end, frequency
+        )
+    rff_basis = bf.RandomFourierFeatureBasis(
+        dim, rff_order, spectral_distribution
+    )
+    # build the gp
+    mgp = MercerGPFourierPosterior(
+        basis,
+        rff_basis,
+        order,
+        rff_order,
+        dim,
+        kernel,
+        prior_variance=prior_variance,
     )
     return mgp
 
