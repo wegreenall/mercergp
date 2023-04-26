@@ -59,6 +59,10 @@ class HilbertSpaceElement:
         """
         return self.coefficients
 
+    def __rmul__(self, other):
+        if isinstance(other, int) or isinstance(other, float):
+            return HilbertSpaceElement(self.basis, self.coefficients * other)
+
 
 class MercerGP:
     """
@@ -352,6 +356,7 @@ class MercerGPFourierPosterior(MercerGP):
         kernel: MercerKernel,
         # spectral_distribution: D.Distribution,
         mean_function=lambda x: torch.zeros(x.shape),
+        prior_variance=1.0,
     ):
         """
         Initialises the MercerGPFourierPosterior class.
@@ -368,12 +373,15 @@ class MercerGPFourierPosterior(MercerGP):
             # marginal_distribution_2,  # second spectral frequency marginal
             mean_function=lambda x: torch.zeros(x.shape),
         )
+        self.prior_variance = prior_variance
         super().__init__(basis, order, dim, kernel, mean_function)
 
     def gen_gp(self):
         # i.e., we are generating a Wilson(2020) style prior- and posterior
         # decomposition
-        prior_component = self.rffgp.gen_gp()  # this should be f + ig
+        prior_component = (
+            self.prior_variance * self.rffgp.gen_gp()
+        )  # this should be f + ig
 
         # evaluate the prior component at the inputs to get the posterior
         # component residuals
