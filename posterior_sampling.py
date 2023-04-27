@@ -4,7 +4,7 @@ import torch.distributions as D
 import math
 from mercergp.kernels import MercerKernel
 from mercergp.eigenvalue_gen import SmoothExponentialFasshauer
-from ortho.builders import get_orthonormal_basis_from_sample
+from ortho.builders import OrthoBuilder
 from ortho.basis_functions import (
     Basis,
     # smooth_exponential_eigenvalues_fasshauer,
@@ -296,8 +296,11 @@ if __name__ == "__main__":
         dist = D.Normal(0.0, 1.0)
         input_sample = dist.sample(sample_shape)
 
-    basis = get_orthonormal_basis_from_sample(
-        input_sample, weight_function, order
+    basis = (
+        OrthoBuilder(order)
+        .set_sample(input_sample)
+        .set_weight_function(weight_function)
+        .get_orthonormal_basis()
     )
 
     params = {
