@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 import math
 from termcolor import colored
 from typing import Union, Iterable
+from abc import ABC, abstractmethod
 
 
 def eigenvalue_reshape(eigenvalue_tensors: torch.Tensor):
@@ -44,7 +45,7 @@ def harmonic(m, k):
     return harmonics
 
 
-class EigenvalueGenerator:
+class EigenvalueGenerator(ABC):
     """
     When constructing a Mercer Gaussian process kernel, the form of the kernel
     is:

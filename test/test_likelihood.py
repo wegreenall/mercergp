@@ -4,6 +4,7 @@ from ortho.basis_functions import (
     Basis,
     OrthonormalBasis,
     smooth_exponential_eigenvalues_fasshauer,
+    smooth_exponential_basis_fasshauer,
 )
 from ortho.orthopoly import (
     OrthogonalBasisFunction,
@@ -11,8 +12,47 @@ from ortho.orthopoly import (
 )
 from ortho.measure import MaximalEntropyDensity
 from mercergp.likelihood import MercerLikelihood, FavardLikelihood
+from mercergp.likelihood_refit import TermGenerator
 
 import unittest
+
+
+class TestTermGenerator(unittest.TestCase):
+    def setUp(self):
+        sample_size = 1000
+        input_sample = D.Normal(0.0, 1.0).sample([sample_size])
+        output_sample = torch.exp(input_sample)
+        dim = 1
+        order = 10
+        parameters = {
+            "ard_parameter": torch.Tensor([1.0]),
+            "precision_parameter": torch.Tensor([1.0]),
+            "noise_parameter": torch.Tensor([0.1]),
+        }
+        basis = Basis(
+            smooth_exponential_basis_fasshauer, dim, order, parameters
+        )
+        self.term_generator = TermGenerator(basis, input_sample, output_sample)
+
+    def test_inv_param_grad(self):
+        inv_param_grad = self.term_generator.inv_param_grad()
+        self.assertEqual(inv_param_grad.shape, (self.term_generator.dim,))
+        pass
+
+    def test_inv_sigma_grad(self):
+        pass
+
+    def test_trace_sigma_term(self):
+        pass
+
+    def test_trace_param_term(self):
+        pass
+
+    def test_inv_y(self):
+        pass
+
+    def test_sigma_grad(self):
+        pass
 
 
 class TestFavardLikelihoodMethods(unittest.TestCase):

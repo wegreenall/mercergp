@@ -165,7 +165,6 @@ class Likelihood:
 
         we can speed things up by calculating these things only once.
         """
-        # print("DETANDEXP")
         ksi = self._ksi(parameters)
         ksiksi = self._ksiksi(parameters, ksi)
         ksiksi_inverse = self._ksiksi_inverse(parameters, ksi, ksiksi)
