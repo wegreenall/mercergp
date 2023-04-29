@@ -50,12 +50,14 @@ class TermGenerator:
         self.eigenvalue_generator = eigenvalue_generator
         self.kernel = kernel
 
-    def inner_param_term(self, kernel_inverse: torch.Tensor, parameters: torch.Tensor) -> torch.Tensor:
+    def inner_param_term(
+        self, kernel_inverse: torch.Tensor, parameters: torch.Tensor
+    ) -> torch.Tensor:
         """
         Returns the term K^{-1} [δK/δθ] K^{-1}
 
         Because this is constructing the grad for the parameter tensor,
-        it uses the shape of the parameter vector to get the right shape for the 
+        it uses the shape of the parameter vector to get the right shape for the
         extension to the kernel inverse.
 
         input shapes:
@@ -65,14 +67,20 @@ class TermGenerator:
         output shape:
             [n x n x b]
         """
-        kernel_inverse_reshaped = kernel_inverse.unsqueeze(2).repeat(1, 1, parameters.shape[0])
+        kernel_inverse_reshaped = kernel_inverse.unsqueeze(2).repeat(
+            1, 1, parameters.shape[0]
+        )
         param_grad = self.param_grad(parameters)
-        return torch.einsum("ij...,jk...,kl... -> il...",
-                            kernel_inverse_reshaped,
-                            param_grad,
-                            kernel_inverse_reshaped)
+        return torch.einsum(
+            "ij...,jk...,kl... -> il...",
+            kernel_inverse_reshaped,
+            param_grad,
+            kernel_inverse_reshaped,
+        )
 
-    def inner_sigma_term(self, kernel_inverse: torch.Tensor, parameters: torch.Tensor) -> torch.Tensor:
+    def inner_sigma_term(
+        self, kernel_inverse: torch.Tensor, parameters: torch.Tensor
+    ) -> torch.Tensor:
         """
         Returns the term K^{-1} δK/δσ^2 K^{-1}
 
@@ -84,18 +92,28 @@ class TermGenerator:
             [n x n]
         """
         sigma_grad = self.sigma_grad(parameters)
-        return torch.einsum("ij,jk,kl -> il", kernel_inverse, sigma_grad, kernel_inverse)
+        return torch.einsum(
+            "ij,jk,kl -> il", kernel_inverse, sigma_grad, kernel_inverse
+        )
 
-    def trace_param_term(self, kernel_inverse: torch.Tensor, ) -> torch.Tensor:
+    def trace_param_term(
+        self, kernel_inverse: torch.Tensor, parameters: torch.Tensor
+    ) -> torch.Tensor:
         """
-        Returns the term tr(K^{-1} [δK/δθ])
+        Returns the term tr(K^{-1} [δK/δθ]).
+
+        output shape:
+            [n x n x b]
         """
-        kernel_inverse_reshaped = kernel_inverse.unsqueeze(2).repeat(1, 1, parameters.shape[0])
+        kernel_inverse_reshaped = kernel_inverse.unsqueeze(2).repeat(
+            1, 1, parameters.shape[0]
+        )
         param_grad = self.param_grad(parameters)
         return torch.einsum("iib, b -> b", kernel_inverse_reshaped, param_grad)
 
-
-    def trace_sigma_term(self, kernel_inverse: torch.Tensor,  parameters: torch.Tensor) -> torch.Tensor:
+    def trace_sigma_term(
+        self, kernel_inverse: torch.Tensor, parameters: torch.Tensor
+    ) -> torch.Tensor:
         """
         Returns the term tr(K^{-1} δK/δσ^2)
 
@@ -109,18 +127,17 @@ class TermGenerator:
         sigma_grad = self.sigma_grad(parameters)
         return torch.trace(kernel_inverse @ sigma_grad)
 
-
     def param_grad(self, parameters: torch.Tensor) -> torch.Tensor:
         """
         Returns the matrix of \frac{δK}{δθ}
         """
-        return
+        pass
 
     def sigma_grad(self, parameters: torch.Tensor) -> torch.Tensor:
         """
         Returns the matrix of \frac{δK}{δσ^2}
         """
-        return
+        pass
 
 
 class Likelihood:
@@ -226,14 +243,14 @@ class Likelihood:
             params_grad: [b x 1]
         """
         kernel_inv = self.kernel.kernel_inverse(self.input_points)
-        data_sigma_term = 
+        _sigma_term = self.term_generator.data_sigma_term(kernel_inv)
 
         # get the data term
         data_term_parameters = torch.einsum(
             "i, ij, jk, kl, l",
             self.output_sample,
             kernel_inv,
-            ,
+            data_sigma_term,
             kernel_inv,
             self.output_sample,
         )
@@ -253,13 +270,15 @@ class Likelihood:
         is that in there the corresponding einsum must take into account the
         extended shape of the parameters Tensor.
 
-        Because the kernel inverse is common to all terms, we precompute this 
+        Because the kernel inverse is common to all terms, we precompute this
         and pass it as an argument, for efficiency.
         """
         kernel_inverse = self.kernel.kernel_inverse(self.input_sample)
 
         # get the terms
-        inner_sigma_term = self.term_generator.inner_sigma_term(kernel_inverse, parameters)
+        inner_sigma_term = self.term_generator.inner_sigma_term(
+            kernel_inverse, parameters
+        )
         trace_sigma_term = self.term_generator.trace_sigma_term(
             parameters
         )  # tr(K^-1 * δK/δσ^2)
@@ -269,7 +288,7 @@ class Likelihood:
             "i, ij, j ->",
             self.output_sample,
             inner_sigma_term,
-           self.output_sample,
+            self.output_sample,
         )
         trace_term = -0.5 * trace_sigma_term
         return data_term + trace_term
@@ -291,7 +310,9 @@ class Likelihood:
         kernel_inverse = self.kernel.kernel_inverse()
 
         # get the terms
-        inner_param_term = self.term_generator.inner_param_term(kernel_inverse, parameters)
+        inner_param_term = self.term_generator.inner_param_term(
+            kernel_inverse, parameters
+        )
         trace_param_term = self.term_generator.trace_param_term(parameters)
 
         # calculate the gradient
