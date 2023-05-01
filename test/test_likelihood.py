@@ -55,6 +55,11 @@ class TestTermGenerator(unittest.TestCase):
         pass
 
 
+class TestLikelihoodRefit(unittest.TestCase):
+    def setUp(self):
+        pass
+
+
 class TestFavardLikelihoodMethods(unittest.TestCase):
     def setUp(self):
         # print("likelihood.py")

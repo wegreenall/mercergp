@@ -84,6 +84,12 @@ class EigenvalueGenerator(ABC):
                 raise ValueError("Missing required parameter!")
         return True
 
+    def derivatives(self, parameters: dict) -> torch.Tensor:
+        """
+        Returns the derivatives of the eigenvalues w.r.t the parameters.
+        """
+        raise NotImplementedError("Please use a subclass of this class")
+
 
 class SmoothExponentialFasshauer(EigenvalueGenerator):
     required_parameters = ["ard_parameter", "precision_parameter"]
@@ -113,6 +119,14 @@ class SmoothExponentialFasshauer(EigenvalueGenerator):
         product_eigens = eigenvalue_reshape(eigens_tensor)
         result = torch.reshape(product_eigens, (self.order ** self.dimension,))
         return result
+
+    def derivatives(self, parameters: dict) -> torch.Tensor:
+        """
+        Returns the derivatives of the eigenvalues w.r.t the parameters.
+        """
+        raise NotImplementedError(
+            "Please Implement for SmoothExponentialFasshauer EigenvalueGenerator"
+        )
 
 
 class PolynomialEigenvalues(EigenvalueGenerator):
@@ -148,6 +162,14 @@ class PolynomialEigenvalues(EigenvalueGenerator):
         shape = parameters["shape"]
         degree = parameters["degree"]
         return (scale * torch.ones(self.order) / ((1 + shape))) ** degree
+
+    def derivatives(self, parameters: dict) -> torch.Tensor:
+        """
+        Returns the derivatives of the eigenvalues w.r.t the parameters.
+        """
+        raise NotImplementedError(
+            "Please implement for PolynomialEigenvalues."
+        )
 
 
 class FavardEigenvalues(EigenvalueGenerator):

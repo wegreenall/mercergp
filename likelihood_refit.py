@@ -1,150 +1,38 @@
 # likelihood_refit.py
 import torch
-import math
+
+# import math
 import torch.distributions as D
-import math
-from mercergp.eigenvalue_gen import EigenvalueGenerator
+
+# from termcolor import colored
+# from framework.utils import print_dict
+# import termplot as tplot
+
+# from typing import List
+from mercergp.eigenvalue_gen import (
+    EigenvalueGenerator,
+    SmoothExponentialFasshauer,
+)
 from mercergp.kernels import MercerKernel
-from ortho.basis_functions import Basis, OrthonormalBasis
-from ortho.orthopoly import OrthogonalBasisFunction, OrthogonalPolynomial
-import matplotlib.pyplot as plt
+from ortho.basis_functions import (
+    Basis,
+    # OrthonormalBasis,
+    smooth_exponential_basis_fasshauer,
+)
+
+# from ortho.orthopoly import OrthogonalBasisFunction, OrthogonalPolynomial
+# import matplotlib.pyplot as plt
 from typing import Tuple, Callable
 
 torch.autograd.set_detect_anomaly(True)
 torch.set_printoptions(linewidth=300)
-from termcolor import colored
-from framework.utils import print_dict
-import termplot as tplot
-
-from typing import List
-
-
-class TermGenerator:
-    def __init__(
-        self,
-        input_sample: torch.Tensor,
-        eigenvalue_generator: EigenvalueGenerator,
-        kernel: MercerKernel,
-    ):
-        """
-        This class contains methods for calculating the various terms in the
-        likelihood. This will allow me to separate the terms, their memoisation,
-        etc. from the process of actually fitting the likelihood.
-        From Refactoring: This is like having done "Inline Class".
-
-        Since the term generator is only useful to the likelihood, I
-        will have it instantiated during Likelihood initialisation.
-
-
-        The gradient is calculated as:
-            d ln p/dσ^2 = 1/2 y' K^{-1} [δK/δθ] K^{-1} y - 1/2 tr(K^{-1} δK/δσ^2)
-
-        These can be acquired by the following
-            - inner_param_term -> K^{-1} [δK/δθ] K^{-1}
-            - inner_sigma_term -> K^{-1} [δK/δσ^2] K^{-1}
-            - trace_sigma_term -> tr(K^{-1} [δK/δσ^2])
-            - trace_param_term -> tr(K^{-1} [ δK/δθ ])
-
-        """
-        self.input_sample = input_sample
-        self.eigenvalue_generator = eigenvalue_generator
-        self.kernel = kernel
-
-    def inner_param_term(
-        self, kernel_inverse: torch.Tensor, parameters: torch.Tensor
-    ) -> torch.Tensor:
-        """
-        Returns the term K^{-1} [δK/δθ] K^{-1}
-
-        Because this is constructing the grad for the parameter tensor,
-        it uses the shape of the parameter vector to get the right shape for the
-        extension to the kernel inverse.
-
-        input shapes:
-            kernel_inverse: [n x n]
-            parameters: [b x 1]
-
-        output shape:
-            [n x n x b]
-        """
-        kernel_inverse_reshaped = kernel_inverse.unsqueeze(2).repeat(
-            1, 1, parameters.shape[0]
-        )
-        param_grad = self.param_grad(parameters)
-        return torch.einsum(
-            "ij...,jk...,kl... -> il...",
-            kernel_inverse_reshaped,
-            param_grad,
-            kernel_inverse_reshaped,
-        )
-
-    def inner_sigma_term(
-        self, kernel_inverse: torch.Tensor, parameters: torch.Tensor
-    ) -> torch.Tensor:
-        """
-        Returns the term K^{-1} δK/δσ^2 K^{-1}
-
-        input shapes:
-            kernel_inverse: [n x n]
-            parameters: [b x 1]
-
-        output shape:
-            [n x n]
-        """
-        sigma_grad = self.sigma_grad(parameters)
-        return torch.einsum(
-            "ij,jk,kl -> il", kernel_inverse, sigma_grad, kernel_inverse
-        )
-
-    def trace_param_term(
-        self, kernel_inverse: torch.Tensor, parameters: torch.Tensor
-    ) -> torch.Tensor:
-        """
-        Returns the term tr(K^{-1} [δK/δθ]).
-
-        output shape:
-            [n x n x b]
-        """
-        kernel_inverse_reshaped = kernel_inverse.unsqueeze(2).repeat(
-            1, 1, parameters.shape[0]
-        )
-        param_grad = self.param_grad(parameters)
-        return torch.einsum("iib, b -> b", kernel_inverse_reshaped, param_grad)
-
-    def trace_sigma_term(
-        self, kernel_inverse: torch.Tensor, parameters: torch.Tensor
-    ) -> torch.Tensor:
-        """
-        Returns the term tr(K^{-1} δK/δσ^2)
-
-        input shapes:
-            kernel_inverse: [n x n]
-            parameters: [b x 1]
-
-        output shape:
-            [n x n]
-        """
-        sigma_grad = self.sigma_grad(parameters)
-        return torch.trace(kernel_inverse @ sigma_grad)
-
-    def param_grad(self, parameters: torch.Tensor) -> torch.Tensor:
-        """
-        Returns the matrix of \frac{δK}{δθ}
-        """
-        pass
-
-    def sigma_grad(self, parameters: torch.Tensor) -> torch.Tensor:
-        """
-        Returns the matrix of \frac{δK}{δσ^2}
-        """
-        pass
 
 
 class Likelihood:
     def __init__(
         self,
         order: int,
-        basis: Basis,
+        kernel: MercerKernel,
         input_sample: torch.Tensor,
         output_sample: torch.Tensor,
         eigenvalue_generator: EigenvalueGenerator,
@@ -170,7 +58,8 @@ class Likelihood:
         """
         # hyperparameters
         self.order = order
-        self.basis = basis
+        self.kernel = kernel
+        self.kernel_derivative = kernel  # will use the same basis
         self.input_sample = input_sample
         self.output_sample = output_sample
         self.eigenvalue_generator = eigenvalue_generator
@@ -183,17 +72,12 @@ class Likelihood:
         # convergence criterion
         self.epsilon = optimisation_threshold
 
-        # term generator
-        self.term_generator = TermGenerator(
-            basis, input_sample, output_sample, eigenvalue_generator
-        )
-
     def fit(
         self,
         initial_noise: torch.Tensor,
         parameters: torch.Tensor,
         iter_count=10000,
-    ) -> List[torch.Tensor]:
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         Returns a dictionary containing the trained parameters.
 
@@ -203,60 +87,75 @@ class Likelihood:
         We do this because the parameter is never evaluated as σ.
         """
         converged = False
-        noise_parameter = initial_noise.clone().detach().requires_grad_(True)
+        trained_noise = initial_noise.clone().detach()
+        trained_parameters = parameters.clone().detach()
         while not converged:
             # Get the gradients
             noise_gradient, parameters_gradient = self.get_gradients(
-                parameters
+                trained_parameters
             )
 
             # update the parameters
-            noise_parameter.data -= self.sigma_learning_rate * noise_gradient
+            trained_noise.data -= self.sigma_learning_rate * noise_gradient
 
             # it may be better as a tensor of parameter values...
-            parameters.data -= self.param_learning_rate * parameters_gradient
+            trained_parameters.data -= (
+                self.param_learning_rate * parameters_gradient
+            )
+
+            # having updated parameters and noise values, change on the kernel
+            self.update_kernel_parameters(trained_parameters, trained_noise)
 
             # check the criterion
             converged = (noise_gradient < self.epsilon) and (
                 parameters_gradient < self.epsilon
             ).all()
 
-        new_parameters: dict = dict()
-        return new_parameters
+        return trained_noise, trained_parameters
 
-    def get_gradients(self) -> [torch.Tensor, torch.Tensor]:
+    def update_kernel_parameters(
+        self, parameters: torch.Tensor, noise: torch.Tensor
+    ) -> None:
         """
-        Returns the gradient of the log-likelihood w.r.t the noise parameter.
+        Updates the kernel to reflect the new values of the
+        parameters and noise.
+        """
+        self.kernel.set_eigenvalues(self.eigenvalue_generator(parameters))
+        self.kernel.set_noise(noise)
+        self.kernel_derivative.set_eigenvalues(
+            self.eigenvalue_generator.derivatives(parameters)
+        )
+        self.kernel_derivative.set_noise(noise)
 
-        Code in here will calculate the appropriate terms for the gradients
-        by calling the appropriate methods in the TermGenerator class.
+    def get_gradients(
+        self, parameters: torch.Tensor
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Returns the gradient of the log-likelihood w.r.t the noise parameter
+        and the parameters tensor.
 
-        Returns a tensor scalar containing the gradient information for
-        the noise parameter.
-
-        The key difference between this and the param_gradient function
-        is that in there the corresponding einsum must take into account the
-        extended shape of the parameters Tensor.
+        Because the calculation of the kernel inverse is ostensibly expensive,
+        the kernel inverse is calculated at the top of the "computational graph"
+        and passed in to the functions that will then call the TermGenerator
+        to construct respective gradient terms.
 
         output shapes:
             sigma_grad: [1]
             params_grad: [b x 1]
         """
-        kernel_inv = self.kernel.kernel_inverse(self.input_points)
-        _sigma_term = self.term_generator.data_sigma_term(kernel_inv)
+        # precalculates the kernel inverse for speed
+        kernel_inverse = self.kernel.kernel_inverse(self.input_sample)
 
-        # get the data term
-        data_term_parameters = torch.einsum(
-            "i, ij, jk, kl, l",
-            self.output_sample,
-            kernel_inv,
-            data_sigma_term,
-            kernel_inv,
-            self.output_sample,
+        # get the terms
+        noise_gradient = self.noise_gradient(kernel_inverse, parameters)
+        parameters_gradient = self.parameters_gradient(
+            kernel_inverse, parameters
         )
-        return sigma_grad, params_grad
+        return noise_gradient, parameters_gradient
 
-    def noise_gradient(self, parameters: torch.Tensor):
+    def noise_gradient(
+        self, kernel_inverse: torch.Tensor, parameters: torch.Tensor
+    ):
         """
         Returns the gradient of the log-likelihood w.r.t the noise parameter.
 
@@ -273,27 +172,29 @@ class Likelihood:
         Because the kernel inverse is common to all terms, we precompute this
         and pass it as an argument, for efficiency.
         """
-        kernel_inverse = self.kernel.kernel_inverse(self.input_sample)
-
         # get the terms
-        inner_sigma_term = self.term_generator.inner_sigma_term(
-            kernel_inverse, parameters
+        sigma_gradient_term = torch.eye(self.input_sample.shape[0]).unsqueeze(
+            1
         )
-        trace_sigma_term = self.term_generator.trace_sigma_term(
-            parameters
-        )  # tr(K^-1 * δK/δσ^2)
 
-        # calculate the gradient
+        # calculate the two terms comprising the gradient
+        breakpoint()
         data_term = 0.5 * torch.einsum(
-            "i, ij, j ->",
-            self.output_sample,
-            inner_sigma_term,
-            self.output_sample,
+            "i, ij..., jk..., kl..., l  ->",
+            self.output_sample,  # i
+            kernel_inverse,  # ij
+            sigma_gradient_term,  # jk
+            kernel_inverse,  # kl
+            self.output_sample,  # l
         )
-        trace_term = -0.5 * trace_sigma_term
+        trace_term = -0.5 * torch.trace(kernel_inverse @ sigma_gradient_term)
+
+        print("About to leave noise_gradient!")
         return data_term + trace_term
 
-    def parameters_gradient(self, parameters: torch.Tensor) -> torch.Tensor:
+    def parameters_gradient(
+        self, kernel_inverse: torch.Tensor, parameters: torch.Tensor
+    ) -> torch.Tensor:
         """
         Returns the gradient of the negative log likelihood w.r.t the
         parameters.
@@ -304,27 +205,36 @@ class Likelihood:
         Returns a tensor containing the gradient information for each of the
         values in the parameter tensor.
 
-        Return shape: len(parameters)
-        """
-        # get the K inverse term
-        kernel_inverse = self.kernel.kernel_inverse()
 
+        input_shape:
+            kernel_inverse: [n x n]
+            parameters: [b x 1]
+        output shape:
+            [b x 1]
+        """
         # get the terms
-        inner_param_term = self.term_generator.inner_param_term(
-            kernel_inverse, parameters
+        breakpoint()
+        param_gradient_term = self.kernel_derivative(
+            self.input_sample, self.input_sample
         )
-        trace_param_term = self.term_generator.trace_param_term(parameters)
+
+        kernel_inverse_reshaped = kernel_inverse.unsqueeze(2).repeat(
+            1, 1, parameters.shape[0]
+        )
 
         # calculate the gradient
+        breakpoint()
         data_term = 0.5 * torch.einsum(
-            "i ij..., j -> ...",
-            self.output_sample,
-            inner_param_term,
-            self.output_sample,
+            "i, ijb,jkb, klb, l -> b",
+            self.output_sample,  # i
+            kernel_inverse_reshaped,  # ijb
+            param_gradient_term,  # jkb
+            kernel_inverse_reshaped,  # klb
+            self.output_sample,  # l
         )
-        trace_term = -0.5 * trace_param_term
-        assert data_term.shape == trace_term.shape
-        assert data_term.shape == parameters.shape
+        # the following should break because of incorrect shapes
+        trace_term = -0.5 * torch.trace(kernel_inverse @ param_gradient_term)
+
         return data_term + trace_term
 
 
@@ -336,8 +246,8 @@ def optimise_explicit_gradients(
     objective: Callable,
     epsilon: float,
     sample_size: int,
-    param_learning_rate: torch.Tensor = 0.0001,
-    sigma_learning_rate: torch.Tensor = 0.0001,
+    param_learning_rate: float = 0.0001,
+    sigma_learning_rate: float = 0.0001,
 ):
     """
     Optimises the likelihood w.r.t sigma, b using explicit gradients.
@@ -352,10 +262,6 @@ def optimise_explicit_gradients(
     """
     pass
 
-
-if __name__ == "__main__":
-    # the program begins here
-
     # functions that currently exist:
     # [F] optimise_explicit_gradients
     # [F] determinant_gradients ->
@@ -368,4 +274,54 @@ if __name__ == "__main__":
     # [F] build_ground_truth -> (input_sample, noise_distribution, true_function,
     #                            sample_size)
     # [F] run_experiment -> returns
-    pass
+
+
+if __name__ == "__main__":
+    # data setup
+    sample_size = 1000
+    input_sample = D.Normal(0, 1).sample((sample_size,))
+    true_noise_parameter = torch.Tensor([0.5])
+    print("check input_sample")
+
+    # generate the ground truth for the function
+    def test_function(x: torch.Tensor) -> torch.Tensor:
+        """
+        The test function used in an iteration of Daskalakis, Dellaportas and Panos.
+        """
+        return (1.5 * torch.sin(x) + 0.5 * torch.cos(4 * x) + x / 8).squeeze()
+
+    output_sample = (
+        test_function(input_sample)
+        + D.Normal(0, true_noise_parameter).sample((sample_size,)).squeeze()
+    )
+
+    print("check output_sample")
+
+    # kernel setup
+    order = 12
+    eigenvalues = torch.ones(order, 1)
+    parameters = {
+        "ard_parameter": torch.Tensor([1.0]),
+        "precision_parameter": torch.Tensor([1.0]),
+        "noise_parameter": torch.Tensor([1.0]),
+    }
+    basis_function = smooth_exponential_basis_fasshauer  # the basis function
+    basis = Basis(basis_function, 1, order, parameters)
+    kernel = MercerKernel(order, basis, eigenvalues, parameters)
+
+    eigenvalue_generator = SmoothExponentialFasshauer(parameters)
+
+    likelihood = Likelihood(
+        order,
+        kernel,
+        input_sample,
+        output_sample,
+        eigenvalue_generator,
+    )
+
+    # initial_values for parameters:
+    initial_noise = torch.Tensor([1.0])
+    initial_parameters = torch.Tensor([1.0])
+
+    # now fit the parameters
+    likelihood.fit(initial_noise, initial_parameters)

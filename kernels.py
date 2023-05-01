@@ -327,7 +327,11 @@ class MercerKernel(StationaryKernel):
         # should be of size (input_size, degree), (test_size, degree)
         input_ksi = self.get_ksi(input_points)
         test_ksi = self.get_ksi(test_points).T
-        diag_l = torch.diag(self.eigenvalues)
+        breakpoint()
+        diag_l = torch.diag_embed(
+            self.eigenvalues.t(), offset=0, dim1=0, dim2=1
+        )
+        breakpoint()
         # intermediate_term = torch.mm(input_ksi, diag_l)
 
         # transposing because I appear to have the shape wrong
@@ -336,11 +340,12 @@ class MercerKernel(StationaryKernel):
         # matrix = torch.zeros(input_ksi.shape[0], test_ksi.shape[1])
         # for i,e in enumerate(self.eigenvalues):
         #     matrix += e * torch.outer(input_ksi[:,i] , test_ksi[i, :])
+        breakpoint()
         if len(input_ksi.shape) != 2 or len(test_ksi.shape) != 2:
             breakpoint()
         try:
             kernel = torch.einsum(
-                "ij,jk,kl -> il", input_ksi, diag_l, test_ksi
+                "ij,jk...,kl -> il...", input_ksi, diag_l, test_ksi
             )
         except RuntimeError:
             breakpoint()
@@ -381,11 +386,23 @@ class MercerKernel(StationaryKernel):
         interim_inv = self.get_interim_matrix_inverse(input_points)
 
         # 1/σ^2 (Ι - Ξ(σ^2 Λ^-1 + Ξ'Ξ)Ξ')
-        kernel_inv = (
-            1
-            / (sigma_e ** 2)
-            * (torch.eye(input_points.shape[0]) - ksi @ interim_inv @ ksi.t())
+        # kernel_inv = (
+        # 1
+        # / (sigma_e ** 2)
+        # * (torch.eye(input_points.shape[0]) - ksi @ interim_inv @ ksi.t())
+        # )
+        diag_embedded_ones = torch.diag_embed(
+            torch.ones(interim_inv.shape[2], input_points.shape[0]),
+            offset=0,
+            dim1=0,
+            dim2=1,
         )
+        repeated_ksi = ksi.unsqueeze(2).repeat(1, 1, interim_inv.shape[2])
+        einsum_sub = torch.einsum(
+            "ijb,jkb,lkb -> ilb", repeated_ksi, interim_inv, repeated_ksi
+        )
+        # breakpoint()
+        kernel_inv = 1 / (sigma_e ** 2) * (diag_embedded_ones - einsum_sub)
         return kernel_inv
 
     def get_interim_matrix_inverse(self, input_points):
@@ -395,13 +412,27 @@ class MercerKernel(StationaryKernel):
         """
         ksi = self.get_ksi(input_points)
         sigma_e = self.kernel_args["noise_parameter"]
-        inv_diag_l = torch.diag(1 / self.eigenvalues)  # Λ^-1
-        ksiksi = torch.mm(ksi.T, ksi)  # Ξ'Ξ
+        # the following needs to be of shape: [order, order, ...]
+        inv_diag_l = torch.diag_embed(
+            (1 / self.eigenvalues.t()), offset=0, dim1=0, dim2=1
+        )  # Λ^-1
+
+        ksiksi = (
+            torch.mm(ksi.T, ksi)
+            .unsqueeze(2)
+            .repeat(1, 1, self.eigenvalues.shape[1])
+        )  # Ξ'Ξ
         # ( σ^(2) Λ^-1 + Ξ'Ξ)
         interim_matrix = ksiksi + (sigma_e ** 2) * inv_diag_l
+
         # ( σ^(2) Λ^-1 + Ξ'Ξ)^(-1)
-        interim_inv = torch.inverse(interim_matrix)
-        return interim_inv
+        # the einsum here is used to handle the fact that our "batch" dimension
+        # is the last one(i.e. for order 12 and 3 parameters, we have a 12x12x3
+        # matrix), but we want to invert each of the 3 12x12 matrices. torch invert
+        # wants that to be done in a certain way (it expects the "batch"
+        # dimension to be 0)
+        interim_inv = torch.inverse(torch.einsum("ijk->kij", interim_matrix))
+        return torch.einsum("kij->ijk", interim_inv)
 
     def set_eigenvalues(self, new_eigenvalues):
         """
@@ -426,6 +457,12 @@ class MercerKernel(StationaryKernel):
     def update_params(self, basis, eigenvalues):
         self.set_eigenvalues(eigenvalues)
         self.basis = basis
+
+    def set_noise(self, noise_parameter: torch.Tensor):
+        """
+        Allows for direct setting of the noise parameter for the Mercer kernel.
+        """
+        self.kernel_args["noise_parameter"] = noise_parameter
 
 
 class FasshauerKernel(MercerKernel):
