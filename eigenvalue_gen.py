@@ -72,7 +72,7 @@ class EigenvalueGenerator(ABC):
         given the dictionary of parameters 'parameters'.
         """
         self.check_params(parameters)
-        # raise NotImplementedError("Please use a subclass of this class")
+        raise NotImplementedError("Please use a subclass of this class")
 
     def check_params(self, parameters: dict):
         for key in self.required_params:
@@ -111,8 +111,8 @@ class SmoothExponentialFasshauer(EigenvalueGenerator):
 
         eigens_tensor = torch.zeros(self.order, self.dimension)
         for d in range(self.dimension):
-            eigens = smooth_exponential_eigenvalues_fasshauer(
-                self.order, parameters[d]
+            eigens = self._smooth_exponential_eigenvalues_fasshauer(
+                parameters[d]
             )  # m x dim
             eigens_tensor[:, d] = eigens
 
@@ -120,13 +120,79 @@ class SmoothExponentialFasshauer(EigenvalueGenerator):
         result = torch.reshape(product_eigens, (self.order ** self.dimension,))
         return result
 
-    def derivatives(self, parameters: dict) -> torch.Tensor:
+    def derivatives(self, parameters: dict) -> dict:
         """
         Returns the derivatives of the eigenvalues w.r.t the parameters.
+
+        The parameters are passed in as a dictionary, and we want to
+        return, for each parameter, the derivative of the eigenvalues
+        w.r.t that parameter. Each element will be a vector of gradients
+        with respect to the given parameter.
         """
-        raise NotImplementedError(
-            "Please Implement for SmoothExponentialFasshauer EigenvalueGenerator"
+        for param in self.required_parameters:
+            if param not in parameters:
+                raise ValueError(
+                    "The parameter " + param + " is required but not found"
+                )
+
+        vector_gradients = parameters.copy()
+
+        # ard_parameter
+        vector_gradients["ard_parameter"] = self._ard_parameter_derivative(
+            parameters
         )
+        # precision parameter
+        vector_gradients[
+            "precision_parameter"
+        ] = self._precision_parameter_derivative(parameters)
+        return vector_gradients
+
+    def _smooth_exponential_eigenvalues_fasshauer(self, parameters: dict):
+        """
+        If in one dimension, returns the vector of eigenvalues, up to length
+        order, using the parameters provided in params. Otherwise, returns a
+        matrix of [order, dimension] per-dimension eigenvalue vectors as
+        columns. The calling EigenvalueGenerator class is then expected to
+        convert these to tensor product length i.e. to become
+        [order ** dimension].
+        parameters:
+            - order: the degree up to which the eigenvalues should be computed.
+            - params: a dictionary of parameters whose keys included
+        """
+        b = torch.diag(parameters["ard_parameter"])  # ε  - of dimension d
+        a = torch.diag(parameters["precision_parameter"])  # precision
+        c = torch.sqrt(a ** 2 + 2 * a * b)
+        left_term = torch.sqrt(2 * a / (a + b + c))
+        right_term = b / (a + b + c)
+
+        # construct the vector
+        exponents = (
+            torch.linspace(0, self.order - 1, self.order).repeat(len(b), 1).t()
+        )
+        eigenvalues = left_term * torch.pow(right_term, exponents)
+        return eigenvalues.squeeze()
+
+    def _ard_parameter_derivative(self, parameters: dict):
+        """
+        Returns a vector of gradients of the eigenvalues w.r.t
+        the ard parameter.
+        """
+        b = torch.diag(parameters["ard_parameter"])  # ε  - of dimension d
+        a = torch.diag(parameters["precision_parameter"])  # precision
+        c = torch.sqrt(a ** 2 + 2 * a * b)
+        eigenvalue_derivatives = torch.zeros(self.order)
+        return eigenvalue_derivatives.squeeze()
+
+    def _precision_parameter_derivative(self, parameters: dict):
+        """
+        Returns a vector of gradients of the eigenvalues w.r.t
+        the precision parameter.
+        """
+        b = torch.diag(parameters["ard_parameter"])  # ε  - of dimension d
+        a = torch.diag(parameters["precision_parameter"])  # precision
+        c = torch.sqrt(a ** 2 + 2 * a * b)
+        eigenvalue_derivatives = torch.zeros(self.order)
+        return eigenvalue_derivatives.squeeze()
 
 
 class PolynomialEigenvalues(EigenvalueGenerator):
