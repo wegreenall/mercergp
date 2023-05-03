@@ -20,6 +20,7 @@ from ortho.basis_functions import (
 # from ortho.orthopoly import OrthogonalBasisFunction, OrthogonalPolynomial
 # import matplotlib.pyplot as plt
 from typing import Tuple, Callable
+from termcolor import colored
 
 torch.autograd.set_detect_anomaly(True)
 torch.set_printoptions(linewidth=300)
@@ -33,10 +34,10 @@ class Likelihood:
         input_sample: torch.Tensor,
         output_sample: torch.Tensor,
         eigenvalue_generator: EigenvalueGenerator,
-        param_learning_rate: float = 0.0001,
-        sigma_learning_rate: float = 0.0001,
+        param_learning_rate: float = 0.001,
+        sigma_learning_rate: float = 0.001,
         memoise=True,
-        optimisation_threshold=0.0001,
+        optimisation_threshold=0.000001,
     ):
         """
         Initialises the Likelihood class.
@@ -91,12 +92,18 @@ class Likelihood:
             noise_gradient, parameters_gradients = self.get_gradients(
                 trained_parameters
             )
+            print("Noise gradient:", colored(noise_gradient, "green"), end="")
 
             # update the parameters
             trained_noise.data -= self.sigma_learning_rate * noise_gradient
+            print("Noise value", colored(trained_noise.data, "magenta"))
 
             # it may be better as a tensor of parameter values...
             for param in trained_parameters:
+                print(
+                    "param gradient for: {}".format(param),
+                    colored(parameters_gradients[param], "blue"),
+                )
                 trained_parameters[param].data -= (
                     self.param_learning_rate * parameters_gradients[param]
                 )
@@ -105,10 +112,11 @@ class Likelihood:
             self.update_kernel_parameters(trained_parameters, trained_noise)
 
             # check the criterion
-            converged = (noise_gradient < self.epsilon) and (
+            # breakpoint()
+            converged = (torch.abs(noise_gradient) < self.epsilon) and (
                 torch.Tensor(
                     [
-                        gradient < self.epsilon
+                        torch.abs(gradient) < self.epsilon
                         for gradient in parameters_gradients.values()
                     ]
                 )
@@ -180,6 +188,10 @@ class Likelihood:
         # get the terms
         sigma_gradient_term = torch.eye(self.input_sample.shape[0])
 
+        print(
+            "kernel inverse, is it chacning with noise changes?",
+            self.kernel.kernel_inverse(self.input_sample),
+        )
         # calculate the two terms comprising the gradient
         data_term = 0.5 * torch.einsum(
             "i, ij..., jk..., kl..., l  ->",
@@ -326,7 +338,7 @@ if __name__ == "__main__":
     parameters = {
         "ard_parameter": torch.Tensor([1.0]),
         "precision_parameter": torch.Tensor([1.0]),
-        "noise_parameter": torch.Tensor([1.0]),
+        "noise_parameter": torch.Tensor([0.5]),
     }
     basis_function = smooth_exponential_basis_fasshauer  # the basis function
     basis = Basis(basis_function, 1, order, parameters)
@@ -343,8 +355,7 @@ if __name__ == "__main__":
     )
 
     # initial_values for parameters:
-    initial_noise = torch.Tensor([1.0])
-    initial_parameters = torch.Tensor([1.0])
+    initial_noise = torch.Tensor([0.5])
 
     # now fit the parameters
     likelihood.fit(initial_noise, parameters)
