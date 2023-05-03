@@ -145,6 +145,8 @@ class SmoothExponentialFasshauer(EigenvalueGenerator):
         vector_gradients[
             "precision_parameter"
         ] = self._precision_parameter_derivative(parameters)
+
+        vector_gradients["noise_parameter"] = torch.zeros(self.order)
         return vector_gradients
 
     def _smooth_exponential_eigenvalues_fasshauer(self, parameters: dict):
@@ -179,8 +181,53 @@ class SmoothExponentialFasshauer(EigenvalueGenerator):
         """
         b = torch.diag(parameters["ard_parameter"])  # ε  - of dimension d
         a = torch.diag(parameters["precision_parameter"])  # precision
-        c = torch.sqrt(a ** 2 + 2 * a * b)
-        eigenvalue_derivatives = torch.zeros(self.order)
+        c = a ** 2 + 2 * a * b
+        # eigenvalue_derivatives = torch.zeros(self.order)
+
+        index_vector = torch.linspace(0, self.order - 1, self.order)
+
+        # construct the derivatives of the eigenvalues w.r.t the ard
+        # parameter
+        term_1 = (
+            0.5
+            * torch.pow((2 * a / (a + b + c)), -0.5)
+            * (-2 * a * (1 + a * torch.pow(c, -0.5)) / (a + b + c) ** 2)
+        ) * (b / (a + b + c)) ** index_vector
+
+        term_2 = (
+            index_vector
+            * ((a + b + c) - b * (1 + a * torch.pow(c, -0.5)))
+            / (a + b + c) ** 2
+        ) * torch.sqrt(2 * a / (a + b + c))
+
+        denominator_derivative = 1 + 0.5 * torch.pow(
+            a ** 2 + 2 * a * b, -0.5
+        ) * (2 * a)
+
+        L = torch.sqrt(2 * a / (a + b + c))
+        # dL/da
+        dL = (
+            (0.5 * torch.pow((2 * a / (a + b + c)), -0.5))
+            * (-2 * a * denominator_derivative)
+            / (a + b + c) ** 2
+        )
+        # R
+        R = (b / (a + b + c)) ** index_vector
+
+        # dR
+        dR = (
+            index_vector
+            * (torch.pow((b / (a + b + c)), (index_vector - 1)))
+            * ((a + b + c) - b * denominator_derivative)
+            / (a + b + c) ** 2
+        )
+
+        eigenvalue_derivatives = dL * R + dR * L
+        # assert (term_1 == dL * R).all()
+        # assert (term_2 == dR * L).all()
+
+        # eigenvalue_derivatives = term_1 + term_2
+        # print("ard derivs:", colored(eigenvalue_derivatives, "blue"))
         return eigenvalue_derivatives.squeeze()
 
     def _precision_parameter_derivative(self, parameters: dict):
@@ -192,6 +239,34 @@ class SmoothExponentialFasshauer(EigenvalueGenerator):
         a = torch.diag(parameters["precision_parameter"])  # precision
         c = torch.sqrt(a ** 2 + 2 * a * b)
         eigenvalue_derivatives = torch.zeros(self.order)
+        index_vector = torch.linspace(0, self.order - 1, self.order)
+
+        denominator_derivative = 1 + 0.5 * torch.pow(
+            a ** 2 + 2 * a * b, -0.5
+        ) * (2 * a + 2 * b)
+
+        L = torch.sqrt(2 * a / (a + b + c))
+        # dL/da
+        dL = (
+            (0.5 * torch.pow((2 * a / (a + b + c)), -0.5))
+            * (2 * (a + b + c) - 2 * a * denominator_derivative)
+            / (a + b + c) ** 2
+        )
+        # R
+        R = (b / (a + b + c)) ** index_vector
+
+        # dR
+        dR = (
+            index_vector
+            * (torch.pow((b / (a + b + c)), (index_vector - 1)))
+            * (-b * denominator_derivative)
+            / (a + b + c) ** 2
+        )
+
+        eigenvalue_derivatives = dL * R + dR * L
+        # assert (term_1 == dL * R).all()
+        # assert (term_2 == dR * L).all()
+        # print("precision derivs:", colored(eigenvalue_derivatives, "red"))
         return eigenvalue_derivatives.squeeze()
 
 
