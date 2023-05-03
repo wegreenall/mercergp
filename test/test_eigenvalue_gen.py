@@ -114,6 +114,20 @@ class TestSmoothExponentialFasshauerEigenvalueGenerator(unittest.TestCase):
         eigens_2 = self.eigenvalue_generator(altered_params)
         self.assertTrue(torch.allclose(eigens_2, true_eigens_2))
 
+    def test_derivatives_ard(self):
+        derivatives = self.eigenvalue_generator._ard_parameter_derivative(
+            self.params
+        )
+        self.assertTrue(derivatives.shape, torch.Size([self.order]))
+
+    def test_derivatives_precision(self):
+        derivatives = (
+            self.eigenvalue_generator._precision_parameter_derivative(
+                self.params
+            )
+        )
+        self.assertTrue(derivatives.shape, torch.Size([self.order]))
+
 
 class TestMultivariateSmoothExponentialFasshauerEigenvalueGenerator(
     unittest.TestCase
