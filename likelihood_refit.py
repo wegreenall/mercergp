@@ -1,4 +1,5 @@
 # likelihood_refit.py
+# breakpoint()
 import torch
 import torch.distributions as D
 
@@ -24,6 +25,7 @@ from termcolor import colored
 
 torch.autograd.set_detect_anomaly(True)
 torch.set_printoptions(linewidth=300)
+import matplotlib.pyplot as plt
 
 
 class Likelihood:
@@ -34,8 +36,8 @@ class Likelihood:
         input_sample: torch.Tensor,
         output_sample: torch.Tensor,
         eigenvalue_generator: EigenvalueGenerator,
-        param_learning_rate: float = 0.001,
-        sigma_learning_rate: float = 0.001,
+        param_learning_rate: float = 0.0001,
+        sigma_learning_rate: float = 0.0001,
         memoise=True,
         optimisation_threshold=0.000001,
     ):
@@ -74,7 +76,7 @@ class Likelihood:
         self,
         initial_noise: torch.Tensor,
         parameters: dict,
-        iter_count=10000,
+        max_iterations=10000,
     ) -> Tuple[torch.Tensor, dict]:
         """
         Returns a dictionary containing the trained parameters.
@@ -87,24 +89,30 @@ class Likelihood:
         converged = False
         trained_noise = initial_noise.clone().detach()
         trained_parameters = parameters.copy()
-        while not converged:
+        iterations = 0
+        while not converged and iterations < max_iterations:
             # Get the gradients
             noise_gradient, parameters_gradients = self.get_gradients(
-                trained_parameters
+                trained_parameters, trained_noise
             )
             print("Noise gradient:", colored(noise_gradient, "green"), end="")
 
             # update the parameters
-            trained_noise.data -= self.sigma_learning_rate * noise_gradient
-            print("Noise value", colored(trained_noise.data, "magenta"))
+            trained_noise.data += self.sigma_learning_rate * noise_gradient
+            print("Noise value", colored(trained_noise.data ** 2, "magenta"))
 
             # it may be better as a tensor of parameter values...
             for param in trained_parameters:
                 print(
                     "param gradient for: {}".format(param),
                     colored(parameters_gradients[param], "blue"),
+                    end="",
                 )
-                trained_parameters[param].data -= (
+                print(
+                    "param value for: {}".format(param),
+                    colored(parameters[param], "red"),
+                )
+                trained_parameters[param].data += (
                     self.param_learning_rate * parameters_gradients[param]
                 )
 
@@ -112,7 +120,6 @@ class Likelihood:
             self.update_kernel_parameters(trained_parameters, trained_noise)
 
             # check the criterion
-            # breakpoint()
             converged = (torch.abs(noise_gradient) < self.epsilon) and (
                 torch.Tensor(
                     [
@@ -121,7 +128,15 @@ class Likelihood:
                     ]
                 )
             ).all()
-        print("Converged!")
+            iterations += 1
+        if converged:
+            print("Converged!")
+        else:
+            print("Not converged: {} iterations completed.".format(iterations))
+        print(
+            "final eigenvalues:", self.eigenvalue_generator(trained_parameters)
+        )
+        breakpoint()
         return trained_noise, trained_parameters
 
     def update_kernel_parameters(
@@ -138,7 +153,9 @@ class Likelihood:
         # )
         # self.kernel_derivative.set_noise(noise)
 
-    def get_gradients(self, parameters: dict) -> Tuple[torch.Tensor, dict]:
+    def get_gradients(
+        self, parameters: dict, noise: torch.Tensor
+    ) -> Tuple[torch.Tensor, dict]:
         """
         Returns the gradient of the log-likelihood w.r.t the noise parameter
         and the parameters tensor.
@@ -159,7 +176,7 @@ class Likelihood:
 
         # get the terms
         noise_gradient: torch.Tensor = self.noise_gradient(
-            kernel_inverse, parameters
+            kernel_inverse, parameters, noise
         )
         parameters_gradients: dict = self.parameters_gradient(
             kernel_inverse, parameters
@@ -167,7 +184,10 @@ class Likelihood:
         return noise_gradient, parameters_gradients
 
     def noise_gradient(
-        self, kernel_inverse: torch.Tensor, parameters: dict
+        self,
+        kernel_inverse: torch.Tensor,
+        parameters: dict,
+        noise: torch.Tensor,
     ) -> torch.Tensor:
         """
         Returns the gradient of the log-likelihood w.r.t the noise parameter.
@@ -186,12 +206,12 @@ class Likelihood:
         and pass it as an argument, for efficiency.
         """
         # get the terms
-        sigma_gradient_term = torch.eye(self.input_sample.shape[0])
+        sigma_gradient_term = 2 * noise * torch.eye(self.input_sample.shape[0])
 
-        print(
-            "kernel inverse, is it chacning with noise changes?",
-            self.kernel.kernel_inverse(self.input_sample),
-        )
+        # print(
+        # "kernel inverse, is it chacning with noise changes?",
+        # self.kernel.kernel_inverse(self.input_sample),
+        # )
         # calculate the two terms comprising the gradient
         data_term = 0.5 * torch.einsum(
             "i, ij..., jk..., kl..., l  ->",
@@ -311,10 +331,11 @@ def optimise_explicit_gradients(
 
 
 if __name__ == "__main__":
+    plot = True
     # data setup
     sample_size = 1000
-    input_sample = D.Normal(0, 1).sample((sample_size,))
-    true_noise_parameter = torch.Tensor([0.5])
+    input_sample = D.Normal(0, 4).sample((sample_size,))
+    true_noise_parameter = torch.Tensor([0.3])
     print("check input_sample")
 
     # generate the ground truth for the function
@@ -333,7 +354,7 @@ if __name__ == "__main__":
     print("check output_sample")
 
     # kernel setup
-    order = 12
+    order = 16
     eigenvalues = torch.ones(order, 1)
     parameters = {
         "ard_parameter": torch.Tensor([1.0]),
@@ -354,6 +375,18 @@ if __name__ == "__main__":
         eigenvalue_generator,
     )
 
+    if plot:
+        x_axis = torch.linspace(-10, 10, 1000)
+        # plot the function
+        plt.plot(x_axis, test_function(x_axis), label="true function")
+        plt.scatter(
+            input_sample.numpy(),
+            output_sample.numpy(),
+            label="sampled data",
+            color="black",
+        )
+        plt.legend()
+        plt.show()
     # initial_values for parameters:
     initial_noise = torch.Tensor([0.5])
 
