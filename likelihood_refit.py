@@ -129,14 +129,25 @@ class Likelihood:
                 )
             ).all()
             iterations += 1
+            if iterations % 100 == 0:
+                print("Iteration: {}".format(iterations))
+
         if converged:
             print("Converged!")
         else:
             print("Not converged: {} iterations completed.".format(iterations))
-        print(
-            "final eigenvalues:", self.eigenvalue_generator(trained_parameters)
+        final_eigenvalues = self.eigenvalue_generator(trained_parameters)
+        print("final eigenvalues:", final_eigenvalues)
+        # breakpoint()
+        experiment_order = sum(
+            torch.where(
+                final_eigenvalues
+                > (trained_noise / self.input_sample.shape[0]),
+                torch.ones(final_eigenvalues.shape),
+                torch.zeros(final_eigenvalues.shape),
+            )
         )
-        breakpoint()
+        print("estimated optimal order:", experiment_order)
         return trained_noise, trained_parameters
 
     def update_kernel_parameters(
@@ -354,12 +365,13 @@ if __name__ == "__main__":
     print("check output_sample")
 
     # kernel setup
-    order = 16
+    order = 7
     eigenvalues = torch.ones(order, 1)
     parameters = {
         "ard_parameter": torch.Tensor([1.0]),
         "precision_parameter": torch.Tensor([1.0]),
         "noise_parameter": torch.Tensor([0.5]),
+        "variance_parameter": torch.Tensor([1.0]),
     }
     basis_function = smooth_exponential_basis_fasshauer  # the basis function
     basis = Basis(basis_function, 1, order, parameters)

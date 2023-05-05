@@ -58,6 +58,7 @@ class TestPolynomialEigenvalueGenerator(unittest.TestCase):
             "scale": torch.Tensor([self.scale]),
             "shape": self.shape,
             "degree": torch.Tensor([self.degree]),
+            "variance_parameter": torch.Tensor([1.0]),
         }
         eigens = self.eigenvalue_generator(params)
         self.assertEqual(eigens.shape, torch.Size([self.order]))
@@ -75,6 +76,7 @@ class TestSmoothExponentialFasshauerEigenvalueGenerator(unittest.TestCase):
         self.params = {
             "precision_parameter": torch.Tensor([[self.precision_parameter]]),
             "ard_parameter": torch.Tensor([[self.ard_parameter]]),
+            "variance_parameter": torch.Tensor([1.0]),
         }
         pass
 
@@ -82,6 +84,7 @@ class TestSmoothExponentialFasshauerEigenvalueGenerator(unittest.TestCase):
         params = {
             "precision_parameter": torch.Tensor([self.precision_parameter]),
             "ard_parameter": torch.Tensor([self.ard_parameter]),
+            "variance_parameter": torch.Tensor([1.0]),
         }
         # breakpoint()
         eigens = self.eigenvalue_generator(self.params)
@@ -105,6 +108,7 @@ class TestSmoothExponentialFasshauerEigenvalueGenerator(unittest.TestCase):
                 [self.precision_parameter + 0.5]
             ),
             "ard_parameter": torch.Tensor([self.ard_parameter + 0.5]),
+            "variance_parameter": torch.Tensor([1.0]),
         }
         left_term = math.sqrt(3 / (3 + 1.5 * math.sqrt(3)))
         right_term = 1.5 / (3 + 1.5 * math.sqrt(3))
@@ -147,6 +151,7 @@ class TestMultivariateSmoothExponentialFasshauerEigenvalueGenerator(
             {
                 "precision_parameter": self.precision_parameter,
                 "ard_parameter": self.ard_parameter,
+                "variance_parameter": torch.Tensor([1.0]),
             },
         )
         pass
@@ -181,6 +186,7 @@ class TestMultivariateSmoothExponentialFasshauerEigenvalueGenerator(
                 [self.precision_parameter + 0.5]
             ),
             "ard_parameter": torch.Tensor([self.ard_parameter + 0.5]),
+            "variance_parameter": torch.Tensor([1.0]),
         }
         left_term = math.sqrt(3 / (3 + 1.5 * math.sqrt(3)))
         right_term = 1.5 / (3 + 1.5 * math.sqrt(3))

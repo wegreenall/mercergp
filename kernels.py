@@ -257,6 +257,7 @@ class MercerKernel(StationaryKernel):
         # "ard_parameter",
         # "precision_parameter",
         "noise_parameter",
+        "variance_parameter",
     }
 
     def __init__(
@@ -339,7 +340,7 @@ class MercerKernel(StationaryKernel):
         if len(input_ksi.shape) != 2 or len(test_ksi.shape) != 2:
             breakpoint()
         try:
-            kernel = torch.einsum(
+            kernel = self.kernel_args["variance_parameter"] * torch.einsum(
                 "ij,jk...,kl -> il...", input_ksi, diag_l, test_ksi
             )
         except RuntimeError:
@@ -423,9 +424,15 @@ class MercerKernel(StationaryKernel):
         """
         return self.eigenvalues
 
-    def update_params(self, basis, eigenvalues):
+    def update_params(self, basis, eigenvalues, variance_parameter):
         self.set_eigenvalues(eigenvalues)
         self.basis = basis
+
+    def set_variance(self, variance_parameter: torch.Tensor):
+        """
+        Allows for direct setting of the variance parameter for the Mercer kernel.
+        """
+        self.kernel_args["variance_parameter"] = variance_parameter
 
     def set_noise(self, noise_parameter: torch.Tensor):
         """

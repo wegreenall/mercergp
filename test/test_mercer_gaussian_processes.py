@@ -267,6 +267,7 @@ class TestMercerFourierGPPosterior(unittest.TestCase):
             "ard_parameter": torch.Tensor([[1.0]]),
             "noise_parameter": torch.Tensor([0.1]),
             "precision_parameter": torch.Tensor([1.0]),
+            "variance_parameter": torch.Tensor([1.0]),
         }
         self.eigenvalues = smooth_exponential_eigenvalues_fasshauer(
             self.order, self.kernel_args
