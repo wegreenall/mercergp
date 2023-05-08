@@ -49,18 +49,30 @@ class TestPolynomialEigenvalueGenerator(unittest.TestCase):
         self.scale = 1.0
         self.shape = torch.linspace(1.0, 0.0, self.order)
         self.degree = 4.0
-
-        self.eigenvalue_generator = PolynomialEigenvalues(self.order)
-        pass
-
-    def test_shape(self):
-        params = {
+        self.params = {
             "scale": torch.Tensor([self.scale]),
             "shape": self.shape,
             "degree": torch.Tensor([self.degree]),
             "variance_parameter": torch.Tensor([1.0]),
         }
-        eigens = self.eigenvalue_generator(params)
+
+        self.eigenvalue_generator = PolynomialEigenvalues(self.order)
+        pass
+
+    def test_shape(self):
+        eigens = self.eigenvalue_generator(self.params)
+        self.assertEqual(eigens.shape, torch.Size([self.order]))
+
+    def test_scale_derivatives_shape(self):
+        eigens = self.eigenvalue_generator._scale_derivatives(self.params)
+        self.assertEqual(eigens.shape, torch.Size([self.order]))
+
+    def test_shape_derivatives_shape(self):
+        eigens = self.eigenvalue_generator._shape_derivatives(self.params)
+        self.assertEqual(eigens.shape, torch.Size([self.order]))
+
+    def test_degree_derivatives_shape(self):
+        eigens = self.eigenvalue_generator._degree_derivatives(self.params)
         self.assertEqual(eigens.shape, torch.Size([self.order]))
 
 
@@ -163,7 +175,7 @@ class TestMultivariateSmoothExponentialFasshauerEigenvalueGenerator(
         # }
         eigens = self.eigenvalue_generator(self.params)
         self.assertEqual(
-            eigens.shape, torch.Size([self.order ** self.dimension])
+            eigens.shape, torch.Size([self.order**self.dimension])
         )
 
     @unittest.skip("Not Implemented for multi dimensional")

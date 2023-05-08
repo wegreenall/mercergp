@@ -17,7 +17,6 @@ from mercergp.posterior_sampling import (
     gaussian_spectral_distribution,
 )
 
-
 def build_mercer_gp(
     parameters: dict,
     order: int,

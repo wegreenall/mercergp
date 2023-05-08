@@ -40,7 +40,7 @@ def harmonic(m, k):
     """
     # print("m:", m)
     # print("k:", k)
-    terms = [1 / (i ** k) for i in range(1, m)]
+    terms = [1 / (i**k) for i in range(1, m)]
     harmonics = sum(terms) if m > 1 else 1
     return harmonics
 
@@ -117,7 +117,7 @@ class SmoothExponentialFasshauer(EigenvalueGenerator):
             eigens_tensor[:, d] = eigens
 
         product_eigens = eigenvalue_reshape(eigens_tensor)
-        result = torch.reshape(product_eigens, (self.order ** self.dimension,))
+        result = torch.reshape(product_eigens, (self.order**self.dimension,))
         return result
 
     def derivatives(self, parameters: dict) -> dict:
@@ -175,7 +175,7 @@ class SmoothExponentialFasshauer(EigenvalueGenerator):
         """
         b = torch.diag(parameters["ard_parameter"])  # ε  - of dimension d
         a = torch.diag(parameters["precision_parameter"])  # precision
-        c = torch.sqrt(a ** 2 + 2 * a * b)
+        c = torch.sqrt(a**2 + 2 * a * b)
         left_term = torch.sqrt(2 * a / (a + b + c))
         right_term = b / (a + b + c)
 
@@ -194,7 +194,7 @@ class SmoothExponentialFasshauer(EigenvalueGenerator):
         sigma = parameters["variance_parameter"]
         b = torch.diag(parameters["ard_parameter"])  # ε  - of dimension d
         a = torch.diag(parameters["precision_parameter"])  # precision
-        c = a ** 2 + 2 * a * b
+        c = a**2 + 2 * a * b
         # eigenvalue_derivatives = torch.zeros(self.order)
 
         index_vector = torch.linspace(0, self.order - 1, self.order)
@@ -214,7 +214,7 @@ class SmoothExponentialFasshauer(EigenvalueGenerator):
         ) * torch.sqrt(2 * a / (a + b + c))
 
         denominator_derivative = 1 + 0.5 * torch.pow(
-            a ** 2 + 2 * a * b, -0.5
+            a**2 + 2 * a * b, -0.5
         ) * (2 * a)
 
         L = torch.sqrt(2 * a / (a + b + c))
@@ -248,12 +248,12 @@ class SmoothExponentialFasshauer(EigenvalueGenerator):
         """
         b = torch.diag(parameters["ard_parameter"])  # ε  - of dimension d
         a = torch.diag(parameters["precision_parameter"])  # precision
-        c = torch.sqrt(a ** 2 + 2 * a * b)
+        c = torch.sqrt(a**2 + 2 * a * b)
         eigenvalue_derivatives = torch.zeros(self.order)
         index_vector = torch.linspace(0, self.order - 1, self.order)
 
         denominator_derivative = 1 + 0.5 * torch.pow(
-            a ** 2 + 2 * a * b, -0.5
+            a**2 + 2 * a * b, -0.5
         ) * (2 * a + 2 * b)
 
         L = torch.sqrt(2 * a / (a + b + c))
@@ -320,9 +320,52 @@ class PolynomialEigenvalues(EigenvalueGenerator):
         """
         Returns the derivatives of the eigenvalues w.r.t the parameters.
         """
-        raise NotImplementedError(
-            "Please implement for PolynomialEigenvalues."
+        scale_derivatives = self._scale_derivatives(parameters)
+        shape_derivatives = self._shape_derivatives(parameters)
+        degree_derivatives = self._degree_derivatives(parameters)
+        parameter_derivatives = parameters.copy()
+        parameter_derivatives["scale"] = scale_derivatives
+        parameter_derivatives["shape"] = shape_derivatives
+        parameter_derivatives["degree"] = degree_derivatives
+
+        return parameter_derivatives
+
+    def _scale_derivatives(self, parameters: dict) -> torch.Tensor:
+        """
+        Calculates the derivative of the eigenvalues w.r.t the scale parameter.
+
+        output shape: [order]
+        """
+        scale = parameters["scale"]
+        shape = parameters["shape"]
+        degree = parameters["degree"]
+        return (torch.ones(self.order) / ((1 + shape))) ** degree
+
+    def _shape_derivatives(self, parameters: dict) -> torch.Tensor:
+        """
+        Calculates the derivative of the eigenvalues w.r.t the shape parameter.
+
+        output shape: [order]
+        """
+        scale = parameters["scale"]
+        shape = parameters["shape"]
+        degree = parameters["degree"]
+        return (-degree * scale * torch.ones(self.order) / ((1 + shape))) ** (
+            degree + 1
         )
+
+    def _degree_derivatives(self, parameters: dict) -> torch.Tensor:
+        """
+        Calculates the derivative of the eigenvalues w.r.t the degree parameter.
+
+        output shape: [order]
+        """
+        scale = parameters["scale"]
+        shape = parameters["shape"]
+        degree = parameters["degree"]
+        return (
+            torch.log(1 + shape) * torch.ones(self.order) / ((1 + shape))
+        ) ** degree
 
 
 class FavardEigenvalues(EigenvalueGenerator):
@@ -363,7 +406,7 @@ class FavardEigenvalues(EigenvalueGenerator):
 
         numbers = list(range(1, self.order + 1))
         harmonics = torch.Tensor([harmonic(m, 2 * degree) for m in numbers])
-        basis_term = self.f0 * self.d2f0 + self.df0 ** 2
+        basis_term = self.f0 * self.d2f0 + self.df0**2
         basis_term = torch.ones_like(self.f0)
         poly_term = torch.pow(
             torch.Tensor([range(1, self.order + 1)]), 2 * degree
