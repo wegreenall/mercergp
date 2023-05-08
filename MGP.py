@@ -691,7 +691,7 @@ class HermiteMercerGPSample(MercerGPSample):
         # get constant coefficients α, β
         a = self.basis.get_params()["precision_parameter"]
         b = self.basis.get_params()["ard_parameter"]
-        c = torch.sqrt(a ** 2 + 2 * a * b)
+        c = torch.sqrt(a**2 + 2 * a * b)
         first_term_coefficient = c + a
         first_term = (
             2 * x * first_term_coefficient * (self(x) - self.mean_function(x))
@@ -803,7 +803,7 @@ if __name__ == "__main__":
     c = 3
 
     def data_func(x):
-        return a * x ** 2 + b * x + x
+        return a * x**2 + b * x + x
 
     data_points = data_func(inputs) + torch.distributions.Normal(0, 1).sample(
         inputs.shape

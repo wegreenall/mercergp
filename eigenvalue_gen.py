@@ -1,15 +1,16 @@
 import torch
-from ortho.basis_functions import smooth_exponential_eigenvalues_fasshauer
-import matplotlib.pyplot as plt
 import math
-from termcolor import colored
-from typing import Union, Iterable
-from abc import ABC, abstractmethod
+from typing import Union, List, Tuple
+from abc import ABC
 
 
 def eigenvalue_reshape(eigenvalue_tensors: torch.Tensor):
-    """For a d-length list of tensors of eigenvalues, returns the einsum resulting from:
-    torch.einsum("na, nb, nc, nd -> nabcd", tensor[:,:,0], tensor[:,:,1], tensor[:,:,2], tensor[:,:,3])
+    """For a d-length list of tensors of eigenvalues, returns the einsum
+    resulting from:
+        torch.einsum("na, nb, nc, nd -> nabcd", tensor[:,:,0],
+                     tensor[:,:,1],
+                     tensor[:,:,2],
+                     tensor[:,:,3])
     """
     einsum_string = ""
     used_chars = ""
@@ -62,6 +63,8 @@ class EigenvalueGenerator(ABC):
     for the eigenvalues.
     """
 
+    required_parameters: List[str] = []
+
     def __init__(self, order, dimension=1):
         self.order = order
         self.dimension = dimension
@@ -78,13 +81,14 @@ class EigenvalueGenerator(ABC):
         for key in self.required_params:
             if key not in parameters:
                 print(
-                    "Required parameters not included; please ensure to include the required parameters:\n"
+                    "Required parameters not included; please ensure to \
+                    include the required parameters: \n"
                 )
                 print([param for param in self.required_parameters])
                 raise ValueError("Missing required parameter!")
         return True
 
-    def derivatives(self, parameters: dict) -> torch.Tensor:
+    def derivatives(self, parameters: dict) -> dict:
         """
         Returns the derivatives of the eigenvalues w.r.t the parameters.
         """
@@ -94,7 +98,7 @@ class EigenvalueGenerator(ABC):
 class SmoothExponentialFasshauer(EigenvalueGenerator):
     required_parameters = ["ard_parameter", "precision_parameter"]
 
-    def __call__(self, parameters: Union[list, dict]) -> torch.Tensor:
+    def __call__(self, parameters: Union[list, dict, Tuple]) -> torch.Tensor:
         # if we are passed a list, then it will be for multiple dimensions
         # for parameter in self.required_parameters:
         # if self.dimension != parameters[parameter].shape[-1]:
@@ -106,7 +110,8 @@ class SmoothExponentialFasshauer(EigenvalueGenerator):
 
         if len(parameters) != self.dimension:
             raise ValueError(
-                "The number of parameter dicts passed must match the dimension parameter"
+                "The number of parameter dicts passed must match the \
+                 dimension parameter"
             )
 
         eigens_tensor = torch.zeros(self.order, self.dimension)
@@ -201,17 +206,6 @@ class SmoothExponentialFasshauer(EigenvalueGenerator):
 
         # construct the derivatives of the eigenvalues w.r.t the ard
         # parameter
-        term_1 = (
-            0.5
-            * torch.pow((2 * a / (a + b + c)), -0.5)
-            * (-2 * a * (1 + a * torch.pow(c, -0.5)) / (a + b + c) ** 2)
-        ) * (b / (a + b + c)) ** index_vector
-
-        term_2 = (
-            index_vector
-            * ((a + b + c) - b * (1 + a * torch.pow(c, -0.5)))
-            / (a + b + c) ** 2
-        ) * torch.sqrt(2 * a / (a + b + c))
 
         denominator_derivative = 1 + 0.5 * torch.pow(
             a**2 + 2 * a * b, -0.5
@@ -316,7 +310,7 @@ class PolynomialEigenvalues(EigenvalueGenerator):
         degree = parameters["degree"]
         return (scale * torch.ones(self.order) / ((1 + shape))) ** degree
 
-    def derivatives(self, parameters: dict) -> torch.Tensor:
+    def derivatives(self, parameters: dict) -> dict:
         """
         Returns the derivatives of the eigenvalues w.r.t the parameters.
         """
@@ -330,7 +324,7 @@ class PolynomialEigenvalues(EigenvalueGenerator):
 
         return parameter_derivatives
 
-    def _scale_derivatives(self, parameters: dict) -> torch.Tensor:
+    def _scale_derivatives(self, parameters: dict) -> dict:
         """
         Calculates the derivative of the eigenvalues w.r.t the scale parameter.
 
@@ -341,7 +335,7 @@ class PolynomialEigenvalues(EigenvalueGenerator):
         degree = parameters["degree"]
         return (torch.ones(self.order) / ((1 + shape))) ** degree
 
-    def _shape_derivatives(self, parameters: dict) -> torch.Tensor:
+    def _shape_derivatives(self, parameters: dict) -> dict:
         """
         Calculates the derivative of the eigenvalues w.r.t the shape parameter.
 
@@ -356,11 +350,11 @@ class PolynomialEigenvalues(EigenvalueGenerator):
 
     def _degree_derivatives(self, parameters: dict) -> torch.Tensor:
         """
-        Calculates the derivative of the eigenvalues w.r.t the degree parameter.
+        Calculates the derivative of the eigenvalues w.r.t the degree
+        parameter.
 
         output shape: [order]
         """
-        scale = parameters["scale"]
         shape = parameters["shape"]
         degree = parameters["degree"]
         return (
@@ -383,7 +377,7 @@ class FavardEigenvalues(EigenvalueGenerator):
         A vector affecting the shape of the eigenvalue sequence.
         Must be increasing.
     param degree:
-        The polynomial degree. Following (Reade, 1992), the 
+        The polynomial degree. Following (Reade, 1992), the
         smoothness of sample functions (in the limit, so this
         is an approximation) will be described by this degree.
         As parameterised here, a degree of k leads to sample functions
