@@ -2,6 +2,8 @@
 # breakpoint()
 import torch
 import torch.distributions as D
+from tabulate import tabulate
+
 
 # from framework.utils import print_dict
 # import termplot as tplot
@@ -77,6 +79,7 @@ class Likelihood:
         initial_noise: torch.Tensor,
         parameters: dict,
         max_iterations=10000,
+        verbose=True,
     ) -> Tuple[torch.Tensor, dict]:
         """
         Returns a dictionary containing the trained parameters.
@@ -95,46 +98,79 @@ class Likelihood:
             noise_gradient, parameters_gradients = self.get_gradients(
                 trained_parameters, trained_noise
             )
-            print("Noise gradient:", colored(noise_gradient, "green"), end="")
 
             # update the parameters
             trained_noise.data += self.sigma_learning_rate * noise_gradient
-            print("Noise value", colored(trained_noise.data ** 2, "magenta"))
+            if verbose:
+                if iterations % 100 == 0:
+                    print("Iteration: {}".format(iterations))
+                    print("Order:", self.order)
+                    print(
+                        "Noise gradient:",
+                        colored(noise_gradient, "green"),
+                        end="",
+                    )
+                    print(
+                        "Noise value",
+                        colored(trained_noise.data**2, "magenta"),
+                    )
 
             # it may be better as a tensor of parameter values...
             for param in trained_parameters:
-                print(
-                    "param gradient for: {}".format(param),
-                    colored(parameters_gradients[param], "blue"),
-                    end="",
-                )
-                print(
-                    "param value for: {}".format(param),
-                    colored(parameters[param], "red"),
-                )
+                if verbose:
+                    if iterations % 100 == 0:
+                        print(
+                            "param gradient for: {}".format(param),
+                            colored(parameters_gradients[param], "blue"),
+                            end="",
+                        )
+                        print(
+                            "param value for: {}".format(param),
+                            colored(parameters[param], "red"),
+                        )
                 trained_parameters[param].data += (
                     self.param_learning_rate * parameters_gradients[param]
                 )
 
+            # print("\n")
+
+            if verbose:
+                pass
+                # tabulated_data = get_tabulated_data(
+                # trained_noise,
+                # trained_parameters,
+                # noise_gradient,
+                # parameters_gradients,
+                # )
+                # print(tabulated_data)
             # having updated parameters and noise values, change on the kernel
             self.update_kernel_parameters(trained_parameters, trained_noise)
 
             # check the criterion
-            converged = (torch.abs(noise_gradient) < self.epsilon) and (
-                torch.Tensor(
-                    [
-                        torch.abs(gradient) < self.epsilon
-                        for gradient in parameters_gradients.values()
-                    ]
-                )
-            ).all()
+            """
+            TEMPORARY SUBSTITUTION: WE WILL JUST USE NOISE AS THE CRITERION
+            """
+            converged = (
+                torch.abs(noise_gradient) * self.sigma_learning_rate * 100
+                < self.epsilon
+            )
+            # converged = (torch.abs(noise_gradient) < self.epsilon) and (
+            # torch.Tensor(
+            # [
+            # torch.abs(gradient) < self.epsilon
+            # for gradient in parameters_gradients.values()
+            # ]
+            # )
+            # ).all()
             iterations += 1
             if iterations % 100 == 0:
                 print("Iteration: {}".format(iterations))
 
         if converged:
             print("Converged!")
+            self.converged = True
         else:
+            self.converged = False
             print("Not converged: {} iterations completed.".format(iterations))
         final_eigenvalues = self.eigenvalue_generator(trained_parameters)
         print("final eigenvalues:", final_eigenvalues)
@@ -151,7 +187,7 @@ class Likelihood:
         return trained_noise, trained_parameters
 
     def update_kernel_parameters(
-        self, parameter: dict, noise: torch.Tensor
+        self, parameters: dict, noise: torch.Tensor
     ) -> None:
         """
         Updates the kernel to reflect the new values of the
@@ -339,6 +375,40 @@ def optimise_explicit_gradients(
     # [F] build_ground_truth -> (input_sample, noise_distribution, true_function,
     #                            sample_size)
     # [F] run_experiment -> returns
+
+
+def get_tabulated_data(
+    trained_noise: torch.Tensor,
+    trained_parameters: dict,
+    noise_gradient: torch.Tensor,
+    parameters_gradients: dict,
+):
+    """
+    Given the parameters and their gradients (as well as corresponding values
+    for the noise parameter), tabulates the information in a presentable way
+    for the repetition in the likelihood fitting.
+    """
+    data = [
+        "_",
+        *trained_parameters.values(),
+        "_",
+        *parameters_gradients.values(),
+    ]
+    headers_list = [
+        "Values:",
+        *trained_parameters.keys(),
+        "Gradients:",
+        *parameters_gradients.keys(),
+    ]
+    data = tabulate(data, headers=headers_list, tablefmt="grid")
+
+    # data = parameters_gradients.copy()
+    # headers = [
+    # "Values:",
+    # *trained_parameters.keys(),
+    # ]
+    # data2 =
+    return data
 
 
 if __name__ == "__main__":
