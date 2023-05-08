@@ -285,7 +285,7 @@ class PolynomialEigenvalues(EigenvalueGenerator):
         A vector affecting the shape of the eigenvalue sequence.
         Must be increasing.
     param degree:
-        The polynomial degree. Following (Reade, 1992), the 
+        The polynomial degree. Following (Reade, 1992), the
         smoothness of sample functions (in the limit, so this
         is an approximation) will be described by this degree.
         As parameterised here, a degree of k leads to sample functions
@@ -316,11 +316,23 @@ class PolynomialEigenvalues(EigenvalueGenerator):
         """
         scale_derivatives = self._scale_derivatives(parameters)
         shape_derivatives = self._shape_derivatives(parameters)
-        degree_derivatives = self._degree_derivatives(parameters)
+        # degree_derivatives = self._degree_derivatives(parameters)
         parameter_derivatives = parameters.copy()
+
+        for param in parameter_derivatives:
+            parameter_derivatives[param] = torch.zeros(self.order)
+
         parameter_derivatives["scale"] = scale_derivatives
         parameter_derivatives["shape"] = shape_derivatives
-        parameter_derivatives["degree"] = degree_derivatives
+        """
+        Whilst we can technically get the degree derivative, it is not likely
+        that this is a good parameter to try to choose. Essentially, the
+        degree parameter is a way of controlling the smoothness of the
+        sample functions; and constitutes an object of prior information,
+        that cannot readily be selected or inferred from data given that it is
+        generally not a well-posed problem.
+        """
+        # parameter_derivatives["degree"] = degree_derivatives
 
         return parameter_derivatives
 
@@ -330,7 +342,7 @@ class PolynomialEigenvalues(EigenvalueGenerator):
 
         output shape: [order]
         """
-        scale = parameters["scale"]
+        # scale = parameters["scale"]
         shape = parameters["shape"]
         degree = parameters["degree"]
         return (torch.ones(self.order) / ((1 + shape))) ** degree
