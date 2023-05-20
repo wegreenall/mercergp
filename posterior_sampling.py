@@ -280,7 +280,7 @@ if __name__ == "__main__":
 
     def weight_function(x: torch.Tensor):
         """A standard weight function for test cases."""
-        return torch.exp(-(x ** 2) / 2)
+        return torch.exp(-(x**2) / 2)
 
     order = 20
     sample_size = 1000

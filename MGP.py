@@ -494,11 +494,11 @@ class NonStationaryRFFGP(RFFGP):
         # standard GP model parameters
         if not order % 2 == 0:
             raise ValueError(
-                "self.basis.w_dist should be a NonStationarySpectralDistribution"
+                "Order of Nonstationary RFF basis should be an even number"
             )
         if not isinstance(basis.w_dist, MercerSpectralDistribution):
             raise TypeError(
-                "self.basis.w_dist should be a NonStationarySpectralDistribution"
+                "self.basis.w_dist should be a MercerSpectralDistribution"
             )
         self.order = order
         self.dim = dim
