@@ -17,6 +17,136 @@ from mercergp.posterior_sampling import (
     gaussian_spectral_distribution,
 )
 
+from enum import Enum
+
+
+class GPBuilderState(Enum):
+    """
+    Enum for the state of the GPBuilder.
+    """
+
+    NOT_READY = 0
+    READY = 1
+
+
+class GPBuilder:
+    def __init__(self, order: int, dim: int = 1):
+        """
+        The GPBuilder acts as a state machine that carries information about
+        whether it is ready to build a GP.
+
+        A GP requires:
+            - a Basis
+            - an order
+            - a kernel
+        Optionally:
+            - a mean function
+
+        To get a kernel, we can either generate one outside the builder,
+        or pass in a basis and eigenvalue generator, and have the kernel
+        be built internally.
+
+        Once the GPBuilder has a basis and a kernel, it enters the READY state
+        and can produce a GP.
+
+        After all updates, the "_check_ready" method is called to
+        advance the state of the builder.
+
+        Paths through the machine:
+            1) generatng a kernel internally:
+                (in any order)
+                - set a basis
+                - set an eigenvalue generator
+                - set kernel parameters
+                On completion of these, a kernel will be set automatically
+                we then have kernel and basis, so the GPBuilder is READY
+            2) generating a kernel externally
+               - set a kernel
+               On setting a kernel, since a kernel requires a basis anyway,
+               we pull it from the kernel and use it as the basis.
+               the GPBuilder is then set to READY
+        """
+        self.state = GPBuilderState.NOT_READY
+        self.order = order
+        if dim != 1:
+            raise NotImplementedError(
+                "Multidimensional version of GPBuilder not implemented."
+            )
+        self.dim = dim
+        self.has_basis = False
+        self.has_eigenvalue_generator = False
+        self.has_kernel = False
+        self.has_parameters = False
+
+    def _check_ready(self):
+        """
+        Checks the status of the MercerGP builder.
+
+        If we have a basis, an eigenvalue_generator and kernel parameters,
+        we can build a kernel and use that as the kernel.
+
+        If we have a kernel, we can build a GP.
+        """
+        if self.has_basis and not self.has_kernel and not self.has_parameters:
+            self.set_parameters(self.basis.parameters)
+        if (
+            self.has_basis
+            and self.has_eigenvalue_generator
+            and self.has_parameters
+        ) and not (self.has_kernel):
+            self.set_kernel(
+                MercerKernel(
+                    self.order,
+                    self.basis,
+                    self.eigenvalue_generator(self.parameters),
+                    self.parameters,
+                )
+            )
+
+        elif self.has_kernel and not self.has_basis:
+            self.set_basis(self.kernel.basis)
+
+        elif self.has_kernel and self.has_basis:
+            self.state = GPBuilderState.READY
+
+    def set_basis(self, basis: bf.Basis):
+        self.basis = basis
+        self.has_basis = True
+        self._check_ready()
+        return self
+
+    def set_eigenvalue_generator(
+        self, eigenvalue_generator: EigenvalueGenerator
+    ):
+        self.eigenvalue_generator = eigenvalue_generator
+        self.has_eigenvalue_generator = True
+        self._check_ready()
+        return self
+
+    def set_parameters(self, parameters: dict):
+        self.parameters = parameters
+        self.has_parameters = True
+        self._check_ready()
+        return self
+
+    def set_kernel(self, kernel: MercerKernel):
+        self.kernel = kernel
+        self.has_kernel = True
+        self._check_ready()
+        return self
+
+    def build(self) -> MercerGP:
+        if self.state == GPBuilderState.READY:
+            return MercerGP(self.basis, self.order, self.dim, self.kernel)
+        else:
+            raise RuntimeError(
+                "GPBuilder not ready to build GP. Current flags: \
+                             \n - has_basis: {} \n - has_eigenvalue_generator:\
+                             {} \n - has_kernel {}\n Please ensure that the \
+                             builder has a basis and eigenvalues, or a kernel."
+            )
+
+
 def build_mercer_gp(
     parameters: dict,
     order: int,
