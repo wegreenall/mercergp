@@ -381,25 +381,26 @@ class MercerKernel(StationaryKernel):
         ksi = self.get_ksi(input_points)  # Ξ
         interim_inv = self.get_interim_matrix_inverse(input_points)
 
-        # 1/σ^2 (Ι - Ξ(σ^2 Λ^-1 + Ξ'Ξ)Ξ')
+        # 1/σ^2 (Ι - Ξ(σ^2 Λ^-1 + Ξ'Ξ)^{-1}Ξ')
         kernel_inv = (
             1
-            / (sigma_e ** 2)
+            / (sigma_e**2)
             * (torch.eye(input_points.shape[0]) - ksi @ interim_inv @ ksi.t())
         )
         return kernel_inv
 
     def get_interim_matrix_inverse(self, input_points):
         """
-        Returns the (σ^2 Λ^-1 + Ξ'Ξ) matrix as required in the kernel_inverse
+        Returns the (σ^2 Λ^-1 + Ξ'Ξ)^{-1} matrix as required in the kernel_inverse
         method (and in general by the WSM formula).
         """
         ksi = self.get_ksi(input_points)
         sigma_e = self.kernel_args["noise_parameter"]
         inv_diag_l = torch.diag(1 / self.eigenvalues)  # Λ^-1
         ksiksi = torch.mm(ksi.T, ksi)  # Ξ'Ξ
+
         # ( σ^(2) Λ^-1 + Ξ'Ξ)
-        interim_matrix = ksiksi + (sigma_e ** 2) * inv_diag_l
+        interim_matrix = (sigma_e**2) * inv_diag_l + ksiksi
         # ( σ^(2) Λ^-1 + Ξ'Ξ)^(-1)
         interim_inv = torch.inverse(interim_matrix)
         return interim_inv

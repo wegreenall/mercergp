@@ -102,7 +102,7 @@ class Likelihood:
             # update the parameters
             trained_noise.data += self.sigma_learning_rate * noise_gradient
             if verbose:
-                if iterations % 100 == 0:
+                if iterations % 1 == 0:
                     print("Iteration: {}".format(iterations))
                     print("Order:", self.order)
                     print(
@@ -217,6 +217,7 @@ class Likelihood:
             params_grad: [b x 1]
         """
         # precalculates the kernel inverse for speed
+
         kernel_inverse: torch.Tensor = self.kernel.kernel_inverse(
             self.input_sample
         )
