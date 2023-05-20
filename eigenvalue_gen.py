@@ -1,4 +1,5 @@
 import torch
+import torch.autograd as autograd
 import math
 from typing import Union, List, Tuple
 from abc import ABC
@@ -308,7 +309,11 @@ class PolynomialEigenvalues(EigenvalueGenerator):
         scale = parameters["scale"]
         shape = parameters["shape"]
         degree = parameters["degree"]
-        return (scale * torch.ones(self.order) / ((1 + shape))) ** degree
+        return (
+            scale
+            * torch.ones(self.order)
+            / ((torch.linspace(0, self.order - 1, self.order) + shape))
+        ) ** degree
 
     def derivatives(self, parameters: dict) -> dict:
         """
@@ -345,7 +350,10 @@ class PolynomialEigenvalues(EigenvalueGenerator):
         # scale = parameters["scale"]
         shape = parameters["shape"]
         degree = parameters["degree"]
-        return (torch.ones(self.order) / ((1 + shape))) ** degree
+        return (
+            torch.ones(self.order)
+            / ((torch.linspace(0, self.order - 1, self.order) + shape))
+        ) ** degree
 
     def _shape_derivatives(self, parameters: dict) -> dict:
         """
@@ -356,9 +364,12 @@ class PolynomialEigenvalues(EigenvalueGenerator):
         scale = parameters["scale"]
         shape = parameters["shape"]
         degree = parameters["degree"]
-        return (-degree * scale * torch.ones(self.order) / ((1 + shape))) ** (
-            degree + 1
-        )
+        return (
+            -degree
+            * scale
+            * torch.ones(self.order)
+            / ((torch.linspace(0, self.order - 1, self.order) + shape))
+        ) ** (degree + 1)
 
     def _degree_derivatives(self, parameters: dict) -> torch.Tensor:
         """
@@ -370,7 +381,9 @@ class PolynomialEigenvalues(EigenvalueGenerator):
         shape = parameters["shape"]
         degree = parameters["degree"]
         return (
-            torch.log(1 + shape) * torch.ones(self.order) / ((1 + shape))
+            torch.log(1 + shape)
+            * torch.ones(self.order)
+            / ((torch.linspace(0, self.order - 1, self.order) + shape))
         ) ** degree
 
 
@@ -400,11 +413,34 @@ class FavardEigenvalues(EigenvalueGenerator):
         λ_i = \frac{b}{H_{m, 2k} [φ_i(0)φ''_i(0) + (φ'_i(0))^2]i^{2k}}
     """
 
-    def __init__(self, order, f0, df0, d2f0):
+    def __init__(self, order, basis):
+        """
+        When initialising the Favard eigenvalues, we
+        need to calculate the various terms associated with
+        the derivative of the basis funciton, etc.
+
+        To calculate them, we accept a Basis type, and evaluate
+        it at a tensor of 0 that has its gradient required.
+        """
         self.order = order
-        self.f0 = f0
-        self.df0 = df0
-        self.d2f0 = d2f0
+        f0, df0, d2f0 = self._get_basis_terms(basis)
+        self.f0 = f0  # φ_i(0)
+        self.df0 = df0  # φ'_i(0)
+        self.d2f0 = d2f0  # φ''_i(0)
+
+    def _get_basis_terms(
+        self, basis
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """
+        Given a basis functions, uses autograd to
+        calculate its derivatives at 0 in order to calculate the terms
+        """
+        x = torch.Tensor([0.0])
+        x.requires_grad = True
+        f0 = basis(x)
+        df0 = autograd.functional.jacobian(basis, x).squeeze(2)
+        d2f0 = f0.clone()  # autograd.grad(df0, x)[0]
+        return f0, df0, d2f0
 
     def __call__(self, parameters: dict) -> torch.Tensor:
         ard_parameter = parameters["ard_parameter"]  # scalar
@@ -419,6 +455,29 @@ class FavardEigenvalues(EigenvalueGenerator):
         )
         eigenvalues = ard_parameter / (harmonics * basis_term * poly_term)
 
+        return eigenvalues.squeeze()
+
+    def derivatives(self, parameters: dict) -> dict:
+        """
+        Returns the derivatives of the eigenvalues vector w.r.t each of the
+        relevant parameters.
+        """
+        raise NotImplementedError(
+            "Not yet set up derivatives for potential\
+                                  favard eigenvalues"
+        )
+
+        ard_parameter = parameters["ard_parameter"]  # scalar
+        degree = parameters["degree"]
+
+        numbers = list(range(1, self.order + 1))
+        harmonics = torch.Tensor([harmonic(m, 2 * degree) for m in numbers])
+        basis_term = self.f0 * self.d2f0 + self.df0**2
+        basis_term = torch.ones_like(self.f0)
+        poly_term = torch.pow(
+            torch.Tensor([range(1, self.order + 1)]), 2 * degree
+        )
+        eigenvalues = ard_parameter / (harmonics * basis_term * poly_term)
         return eigenvalues.squeeze()
 
 
