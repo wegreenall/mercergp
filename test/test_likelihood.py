@@ -79,7 +79,7 @@ class TestFavardLikelihoodMethods(unittest.TestCase):
             optimiser, threshold=1e-8, factor=0.95
         )
         basis_function = OrthogonalBasisFunction(self.order, betas, gammas)
-        basis = Basis(basis_function, 1, self.order)
+        basis = Basis(basis_function, 1, self.order, None)
 
         orthopoly = SymmetricOrthonormalPolynomial(self.order, gammas)
         weight_function = MaximalEntropyDensity(
@@ -173,7 +173,7 @@ class TestMercerLikelihoodMethods(unittest.TestCase):
             optimiser, threshold=1e-8, factor=0.95
         )
         basis_function = OrthogonalBasisFunction(self.order, betas, gammas)
-        basis = Basis(basis_function, 1, self.order)
+        basis = Basis(basis_function, 1, self.order, None)
 
         orthopoly = SymmetricOrthonormalPolynomial(self.order, gammas)
         weight_function = MaximalEntropyDensity(

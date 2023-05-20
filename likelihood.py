@@ -391,7 +391,7 @@ class FavardLikelihood(Likelihood):
 if __name__ == "__main__":
 
     def test_function(x: torch.Tensor):
-        return 2.5 - x ** 2
+        return 2.5 - x**2
 
     # torch.manual_seed(5)
     print("likelihood.py")
@@ -428,7 +428,7 @@ if __name__ == "__main__":
     )
 
     def weight_function(x: torch.Tensor) -> torch.Tensor:
-        return torch.exp(-(x ** 2) / 2)
+        return torch.exp(-(x**2) / 2)
 
     basis = OrthonormalBasis(basis_polynomial, weight_function, 1, order)
 
