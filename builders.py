@@ -29,9 +29,25 @@ class GPBuilderState(Enum):
     READY = 1
 
 
-class GPBuilder:
+class GPType(Enum):
+    """
+    Enum for the type of GP.
+    """
+
+    MERCER = 0
+    FOURIER = 1
+
+
+class MercerGPBuilder:
     def __init__(self, order: int, dim: int = 1):
         """
+        Builder class for generating Mercer Gaussian Process instances.
+        Parameters:
+            - order: the order of the GP
+            - dim: the dimension of the GP; currently implemented only for 1d
+            - gp_type: the type of GP to build (Standard Mercer or
+                                                FourierPosterior)
+
         The GPBuilder acts as a state machine that carries information about
         whether it is ready to build a GP.
 
@@ -41,6 +57,8 @@ class GPBuilder:
             - a kernel
         Optionally:
             - a mean function
+
+        If building a MercerFourierPosterior GP,
 
         To get a kernel, we can either generate one outside the builder,
         or pass in a basis and eigenvalue generator, and have the kernel
@@ -106,7 +124,7 @@ class GPBuilder:
         elif self.has_kernel and not self.has_basis:
             self.set_basis(self.kernel.basis)
 
-        elif self.has_kernel and self.has_basis:
+        if self.has_kernel and self.has_basis:
             self.state = GPBuilderState.READY
 
     def set_basis(self, basis: bf.Basis):
@@ -142,8 +160,71 @@ class GPBuilder:
             raise RuntimeError(
                 "GPBuilder not ready to build GP. Current flags: \
                              \n - has_basis: {} \n - has_eigenvalue_generator:\
-                             {} \n - has_kernel {}\n Please ensure that the \
-                             builder has a basis and eigenvalues, or a kernel."
+                             {} \n - has_kernel {}\n \
+                             Please ensure that the \
+                             builder has a basis and eigenvalues, or a kernel.".format(
+                    self.has_basis,
+                    self.has_eigenvalue_generator,
+                    self.has_kernel,
+                )
+            )
+
+
+class FourierPosteriorMercerGPBuilder(MercerGPBuilder):
+    def __init__(self, order: int, rff_order: int, dim: int = 1):
+        """
+        Since MercerGPFourierPosterior is  subclass
+        of MercerGP,
+        The requirements for the former are a superset of
+        those for the latter. As a result, we can subclass
+        MercerGPBuilder to make construction of a builder for
+        MercerGPFourierPosterior simpler.
+
+        Specifically, in order for this builder to be READY,
+        it must have all the prerequisites for a MercerGP, AND
+        have an rff_order and a random fourier feature basis.
+        """
+        # super(self, MercerGPBuilder).__init__(order, dim)
+        super().__init__(order, dim)
+        self.state = GPBuilderState.NOT_READY
+        self.fourier_state = GPBuilderState.NOT_READY
+        self.rff_order = rff_order
+        self.has_fourier_basis = False
+        self.fourier_basis = None
+
+    def set_fourier_basis(self, fourier_basis: bf.RandomFourierFeatureBasis):
+        self.fourier_basis = fourier_basis
+        self.has_fourier_basis = True
+        self._check_ready()
+        return self
+
+    def _check_ready(self):
+        super()._check_ready()
+        if self.state == GPBuilderState.READY and self.has_fourier_basis:
+            self.fourier_state = GPBuilderState.READY
+
+    def build(self):
+        if self.fourier_state == GPBuilderState.READY:
+            return MercerGPFourierPosterior(
+                self.basis,
+                self.fourier_basis,
+                self.order,
+                self.rff_order,
+                self.dim,
+                self.kernel,
+            )
+        else:
+            raise RuntimeError(
+                "FourierPosteriorMercerGPBuilder not ready to build GP. Current flags: \
+                             \n - has_basis: {} \n - has_eigenvalue_generator:\
+                             {} \n - has_kernel {}\n - has_fourier_basis: {} \n \
+                             Please ensure that the \
+                             builder has a basis and eigenvalues, or a kernel.".format(
+                    self.has_basis,
+                    self.has_eigenvalue_generator,
+                    self.has_kernel,
+                    self.has_fourier_basis,
+                )
             )
 
 
@@ -178,6 +259,13 @@ def build_mercer_gp(
         kernel = MercerKernel(order, basis, eigenvalues, parameters)
 
     # build the gp
+    # builder = (
+    # GPBuilder(order, dim)
+    # .set_basis(basis)
+    # .set_eigenvalue_generator(eigenvalue_generator)
+    # .set_parameters(parameters)
+    # .build()
+    # )
     mgp = MercerGP(basis, order, dim, kernel)
     return mgp
 
