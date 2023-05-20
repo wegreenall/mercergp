@@ -203,44 +203,63 @@ class MercerGP:
 
         The predictive density of a Gaussian process is given by:
 
-        THIS USES THE DIAGONAL OF THE MULTIVARIATE NORMAL
+        THIS USES THE FULL MATRIX OF THE MULTIVARIATE NORMAL
         THAT IS IMPLIED BY K(X*, X*) - K(X*, X)(K+σ^2I)^(-1)K(X, X*)
 
         NEED TO DOUBLE CHECK THAT THIS IS CORRECT
         """
+        use_full_predictive = True
+        use_noise = True
+
         # calculate the mean
         posterior_predictive_mean = self.get_posterior_mean()
         posterior_predictive_mean_evaluation = posterior_predictive_mean(
             test_points
         )
-        inputs = self.get_inputs()
-        # breakpoint()
 
-        # now calculate the variance
-        posterior_predictive_variance = self.kernel(
-            test_points, test_points
-        ) - (
-            self.kernel(test_points, inputs)
-            @ self.kernel.kernel_inverse(inputs)
-            @ self.kernel(inputs, test_points)
+        inputs = self.get_inputs()
+        test_matrix = self.kernel(test_points, inputs)
+        kernel_inverse = torch.inverse(
+            self.kernel(inputs, inputs)
+            + (self.kernel.kernel_args["noise_parameter"] ** 2)
+            * torch.eye(len(inputs))
         )
+        # kernel_inverse = self.kernel.kernel_inverse(inputs)
+        if use_full_predictive:
+            # now calculate the variance
+            posterior_predictive_variance = self.kernel(
+                test_points, test_points
+            ) - (test_matrix @ kernel_inverse @ test_matrix.t())
+        else:
+            posterior_predictive_variance = self.kernel(
+                test_points, test_points
+            )
+
+        if use_noise:
+            posterior_predictive_variance += (
+                self.kernel.kernel_args["noise_parameter"] ** 2
+            ) * torch.eye(len(test_points))
 
         # add jitter for positive definiteness
-        posterior_predictive_variance = (
-            posterior_predictive_variance + 0.01 * torch.eye(len(test_points))
-        )
+        # posterior_predictive_variance_jittered = (
+        # posterior_predictive_variance + 0.01 * torch.eye(len(test_points))
+        # )
         # print(torch.det(posterior_predictive_variance))
+        # assert posterior_predictive_variance
+        # breakpoint()
+
         try:
             distribution = D.MultivariateNormal(
                 posterior_predictive_mean_evaluation,
                 posterior_predictive_variance,
             )
+            print("We got it!")
         except ValueError:
+            print(colored("FOUND NEGATIVE VARIANCE!", "red"))
             distribution = D.MultivariateNormal(
                 posterior_predictive_mean_evaluation,
-                torch.abs(torch.diag(posterior_predictive_variance)),
+                torch.abs(posterior_predictive_variance),
             )
-            print("FOUND NEGATIVE VARIANCE!")
         return distribution
 
     def get_marginal_predictive_density(
@@ -250,7 +269,7 @@ class MercerGP:
         Returns the predictive density of the Mercer Gaussian process
         evaluated at the inputs "input".
 
-        The predictive density of a Gaussian process is given by:
+        The posterior predictive density of a Gaussian process is given by:
 
         THIS USES THE DIAGONAL OF THE MULTIVARIATE NORMAL
         THAT IS IMPLIED BY K(X*, X*) - K(X*, X)(K+σ^2I)^(-1)K(X, X*)
