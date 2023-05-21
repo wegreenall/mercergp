@@ -121,7 +121,7 @@ class TermGenerator:
         data_term = ((intermediate_term @ self.phi_y) ** 2).squeeze()
 
         trace_term = torch.diag(intermediate_term @ self.phi_phi).squeeze()
-        return data_term - trace_term
+        return 0.5 * (data_term - trace_term)
 
 
 class Likelihood:
@@ -167,9 +167,9 @@ class Likelihood:
 
         # convergence criterion
         self.epsilon = optimisation_threshold
-
-        # memoisation stuff
-        self.phi_matrix = self.kernel.basis(self.input_sample)
+        self.term_generator = TermGenerator(
+            input_sample, output_sample, kernel
+        )
 
     def fit(
         self,
@@ -231,13 +231,6 @@ class Likelihood:
 
             if verbose:
                 pass
-                # tabulated_data = get_tabulated_data(
-                # trained_noise,
-                # trained_parameters,
-                # noise_gradient,
-                # parameters_gradients,
-                # )
-                # print(tabulated_data)
             # having updated parameters and noise values, change on the kernel
             self.update_kernel_parameters(trained_parameters, trained_noise)
 
@@ -311,18 +304,15 @@ class Likelihood:
             sigma_grad: [1]
             params_grad: [b x 1]
         """
-        # precalculates the kernel inverse for speed
-
-        kernel_inverse: torch.Tensor = self.kernel.kernel_inverse(
-            self.input_sample
-        )
+        # term generator
+        eigenvalues = self.eigenvalue_generator(parameters)
+        vector_term = self.term_generator.get_vector_term(eigenvalues, noise)
 
         # get the terms
-        noise_gradient: torch.Tensor = self.noise_gradient(
-            kernel_inverse, parameters, noise
-        )
+        # the noise gradient if you do it the term_generator way
+        noise_gradient: torch.Tensor = 2 * noise * torch.sum(vector_term)
         parameters_gradients: dict = self.parameters_gradient(
-            kernel_inverse, parameters
+            vector_term, parameters
         )
         return noise_gradient, parameters_gradients
 
@@ -366,10 +356,14 @@ class Likelihood:
         )
         trace_term = 0.5 * torch.trace(kernel_inverse @ sigma_gradient_term)
 
-        return data_term - trace_term
+        return data_term - trace_term  # the whole noise gradient
 
     def parameters_gradient(
-        self, kernel_inverse: torch.Tensor, parameters: dict
+        self,
+        term_vector: torch.Tensor,
+        parameters: dict,
+        # trained_noise: torch.Tensor,
+        # eigenvalues: torch.Tensor,
     ) -> dict:
         """
         Returns the gradient of the negative log likelihood w.r.t the
@@ -413,29 +407,17 @@ class Likelihood:
             parameters
         )  # the dictionary
 
-        # get the terms
+        # For each of the parameters, take the gradient given by the eigenvalue
+        # generator and get the vector of values from the term_generator.
+        # Then, for each of the parameters, inner-product the term generator
+        # vector
         for param in parameters:
-            self.kernel.set_eigenvalues(eigenvalue_derivatives[param])
-            kernel_gradient_term: dict = self.kernel(
-                self.input_sample, self.input_sample
+            # get the vector of eigenvalue derivatives for this parameter
+            eigenvalue_derivative_vector = eigenvalue_derivatives[param]
+            # breakpoint()
+            parameter_gradients[param] = (
+                term_vector @ eigenvalue_derivative_vector
             )
-            # calculate the gradient
-            data_term = 0.5 * torch.einsum(
-                "i, ij, jk, kl, l -> ",
-                self.output_sample,  # i
-                kernel_inverse,  # ij
-                kernel_gradient_term,  # jk
-                kernel_inverse,  # kl
-                self.output_sample,  # l
-            )
-
-            trace_term = 0.5 * torch.trace(
-                kernel_inverse @ kernel_gradient_term
-            )
-            parameter_gradients[param] = data_term - trace_term
-            # WARNING: EXPERIMENTATION ONLY:
-            # print("ARE YOU TESTING? IF NOT THIS IS WRONG!")
-            # parameter_gradients[param] = data_term  # - trace_term
 
         return parameter_gradients
 

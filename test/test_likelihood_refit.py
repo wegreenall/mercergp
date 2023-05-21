@@ -104,9 +104,16 @@ class TestLikelihoodRefit(unittest.TestCase):
 
         If they are the same, replace the likelihood method.
         """
+        true_vector_term = self.term_generator.get_vector_term(
+            self.eigenvalues, self.noise
+        )
         true_term = self.likelihood.parameters_gradient(
-            self.kernel_inverse, self.parameters
+            true_vector_term, self.parameters
         )["ard_parameter"]
+        _, true_term = self.likelihood.get_gradients(
+            self.parameters, self.noise
+        )
+        true_term = true_term["ard_parameter"]
 
         # get the derivative kernel matrix term: δK/δθ
         # true terms
@@ -150,6 +157,7 @@ class TestLikelihoodRefit(unittest.TestCase):
         )
         self.assertTrue(torch.allclose(data_term, test_data_term_2))
 
+        # breakpoint()
         # # now do it by hand
         phikyvector = self.PhiKyVector()
         phikyvectorsquared = self.PhiKyVector() ** 2
@@ -174,11 +182,12 @@ class TestLikelihoodRefit(unittest.TestCase):
             @ self.eigenvalue_derivatives
         )
 
+        # breakpoint()
         # vector term from term generator
         vector_term = self.term_generator.get_vector_term(
             self.eigenvalues, self.noise
         )
-        test_data_term_final = 0.5 * vector_term @ self.eigenvalue_derivatives
+        test_data_term_final = vector_term @ self.eigenvalue_derivatives
 
         # true term is the full thing with trace term subtracted etc.
         self.assertTrue(
@@ -187,7 +196,9 @@ class TestLikelihoodRefit(unittest.TestCase):
                 test_data_term_final,
             )
         )
-        breakpoint()
+
+        # compare the results from the true likelihood, with the results
+        # from the term generator
         self.assertTrue(torch.allclose(true_term, test_data_term_final))
 
     def PhiKyVector(self):
@@ -196,6 +207,16 @@ class TestLikelihoodRefit(unittest.TestCase):
     def PhiKPhiVector(self):
         return torch.diag(
             self.phi_matrix.T @ self.kernel_inverse @ self.phi_matrix
+        )
+
+    def test_noise_gradient(self):
+        # get the noise gradient from the likelihood
+        # compare it to that build from the term_vector stuff
+        true_term = self.likelihood.noise_gradient(
+            self.kernel_inverse, self.parameters, self.noise
+        )
+        term_generator_version, _ = self.likelihood.get_gradients(
+            self.parameters, self.noise
         )
 
 
@@ -294,7 +315,8 @@ class TestTermGenerator(unittest.TestCase):
         )
         self.assertTrue(
             torch.allclose(
-                vector_term, handmade_vector_term_1 - handmade_vector_term_2
+                vector_term,
+                0.5 * (handmade_vector_term_1 - handmade_vector_term_2),
             )
         )
 
