@@ -73,6 +73,7 @@ class TermGenerator:
         self.order = self.kernel.order
 
         # initialise
+        self.phi_data = None
         self.phi_y_data = None
         self.phi_phi_data = None
 
@@ -93,14 +94,19 @@ class TermGenerator:
         Returns the matrix Φ'Φ.
         """
         if self.phi_phi_data is None:
-            self.phi_phi_data = self.kernel.basis(
-                self.input_sample
-            ).T @ self.kernel.basis(self.input_sample)
+            self.phi_phi_data = self.phi.T @ self.phi
         return self.phi_phi_data
+
+    @property
+    def phi(self) -> torch.Tensor:
+        if self.phi_data is None:
+            self.phi_data = self.kernel.basis(self.input_sample)
+
+        return self.phi_data
 
     def get_vector_term(
         self, eigenvalues: torch.Tensor, noise: torch.Tensor
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+    ) -> torch.Tensor:
         """
         Returns the term:
              z = {(Φ'K^-1y)^2}_i - (Φ'K^-1Φ)_ii
@@ -123,6 +129,26 @@ class TermGenerator:
         trace_term = torch.diag(intermediate_term @ self.phi_phi).squeeze()
         return 0.5 * (data_term - trace_term)
 
+    def get_noise_term(self, eigenvalues: torch.Tensor, noise: torch.Tensor):
+        """
+        To get the noise term gradient, we use the fact that the
+        """
+        inverse = torch.inverse(
+            self.phi_phi + noise**2 * torch.diag(1 / eigenvalues)
+        )
+        intermediate_term = (1 / noise**2) * (
+            torch.eye(self.input_sample.shape[0])
+            - self.phi @ inverse @ self.phi.T
+        )
+        data_term = (
+            noise
+            * torch.sum(
+                (intermediate_term @ self.output_sample) ** 2
+            ).squeeze()
+        )
+        trace_term = noise * torch.trace(intermediate_term).squeeze()
+        return data_term - trace_term
+
 
 class Likelihood:
     def __init__(
@@ -132,8 +158,8 @@ class Likelihood:
         input_sample: torch.Tensor,
         output_sample: torch.Tensor,
         eigenvalue_generator: EigenvalueGenerator,
-        param_learning_rate: float = 0.0001,
-        sigma_learning_rate: float = 0.0001,
+        param_learning_rate: float = 0.00001,
+        sigma_learning_rate: float = 0.00001,
         memoise=True,
         optimisation_threshold=0.000001,
     ):
@@ -154,7 +180,6 @@ class Likelihood:
         """
         # hyperparameters
         self.order = order
-        self.kernel = kernel
         self.kernel_derivative = kernel  # will use the same basis
         self.input_sample = input_sample
         self.output_sample = output_sample
@@ -175,7 +200,7 @@ class Likelihood:
         self,
         initial_noise: torch.Tensor,
         parameters: dict,
-        max_iterations=10000,
+        max_iterations=30000,
         verbose=True,
     ) -> Tuple[torch.Tensor, dict]:
         """
@@ -199,7 +224,7 @@ class Likelihood:
             # update the parameters
             trained_noise.data += self.sigma_learning_rate * noise_gradient
             if verbose:
-                if iterations % 1 == 0:
+                if iterations % 500 == 0:
                     print("Iteration: {}".format(iterations))
                     print("Order:", self.order)
                     print(
@@ -215,7 +240,7 @@ class Likelihood:
             # it may be better as a tensor of parameter values...
             for param in trained_parameters:
                 if verbose:
-                    if iterations % 100 == 0:
+                    if iterations % 500 == 0:
                         print(
                             "param gradient for: {}".format(param),
                             colored(parameters_gradients[param], "blue"),
@@ -229,10 +254,8 @@ class Likelihood:
                     self.param_learning_rate * parameters_gradients[param]
                 )
 
-            if verbose:
-                pass
             # having updated parameters and noise values, change on the kernel
-            self.update_kernel_parameters(trained_parameters, trained_noise)
+            # self.update_kernel_parameters(trained_parameters, trained_noise)
 
             # check the criterion
             """
@@ -251,7 +274,7 @@ class Likelihood:
             # )
             # ).all()
             iterations += 1
-            if iterations % 100 == 0:
+            if iterations % 500 == 0:
                 print("Iteration: {}".format(iterations))
 
         if converged:
@@ -274,20 +297,6 @@ class Likelihood:
         print("estimated optimal order:", experiment_order)
         return trained_noise, trained_parameters
 
-    def update_kernel_parameters(
-        self, parameters: dict, noise: torch.Tensor
-    ) -> None:
-        """
-        Updates the kernel to reflect the new values of the
-        parameters and noise.
-        """
-        self.kernel.set_eigenvalues(self.eigenvalue_generator(parameters))
-        self.kernel.set_noise(noise)
-        # self.kernel_derivative.set_eigenvalues(
-        # self.eigenvalue_generator.derivatives(parameters)
-        # )
-        # self.kernel_derivative.set_noise(noise)
-
     def get_gradients(
         self, parameters: dict, noise: torch.Tensor
     ) -> Tuple[torch.Tensor, dict]:
@@ -307,10 +316,12 @@ class Likelihood:
         # term generator
         eigenvalues = self.eigenvalue_generator(parameters)
         vector_term = self.term_generator.get_vector_term(eigenvalues, noise)
+        noise_gradient = self.term_generator.get_noise_term(eigenvalues, noise)
 
         # get the terms
         # the noise gradient if you do it the term_generator way
-        noise_gradient: torch.Tensor = 2 * noise * torch.sum(vector_term)
+        # noise_gradient: torch.Tensor = noise_term
+        # noise_gradient = self.noise_gradient(kernel_inverse, parameters, noise)
         parameters_gradients: dict = self.parameters_gradient(
             vector_term, parameters
         )
@@ -346,15 +357,14 @@ class Likelihood:
         # self.kernel.kernel_inverse(self.input_sample),
         # )
         # calculate the two terms comprising the gradient
-        data_term = 0.5 * torch.einsum(
-            "i, ij..., jk..., kl..., l  ->",
+        data_term = noise * torch.einsum(
+            "i, ij...,  jl..., l  ->",
             self.output_sample,  # i
             kernel_inverse,  # ij
-            sigma_gradient_term,  # jk
             kernel_inverse,  # kl
             self.output_sample,  # l
         )
-        trace_term = 0.5 * torch.trace(kernel_inverse @ sigma_gradient_term)
+        trace_term = noise * torch.trace(kernel_inverse)
 
         return data_term - trace_term  # the whole noise gradient
 

@@ -218,6 +218,18 @@ class TestLikelihoodRefit(unittest.TestCase):
         term_generator_version, _ = self.likelihood.get_gradients(
             self.parameters, self.noise
         )
+        self.assertTrue(torch.allclose(term_generator_version, true_term))
+
+    def test_noise_gradient_shape(self):
+        true_term = self.likelihood.noise_gradient(
+            self.kernel_inverse, self.parameters, self.noise
+        )
+        term_generator_version, _ = self.likelihood.get_gradients(
+            self.parameters, self.noise
+        )
+        # self.assertTrue(torch.allclose(term_generator_version, true_term))
+        breakpoint()
+        self.assertTrue(true_term.shape == term_generator_version.shape)
 
 
 class TestTermGenerator(unittest.TestCase):
@@ -319,6 +331,15 @@ class TestTermGenerator(unittest.TestCase):
                 0.5 * (handmade_vector_term_1 - handmade_vector_term_2),
             )
         )
+
+    def test_get_noise_term_shape(self):
+        """
+        Tests that the shape for the noise term property is correct.
+        """
+        noise_term = self.term_generator.get_noise_term(
+            self.eigenvalues, self.noise
+        )
+        self.assertTrue(noise_term.shape == torch.Size([1]))
 
 
 if __name__ == "__main__":
