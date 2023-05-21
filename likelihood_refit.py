@@ -2,7 +2,8 @@
 # breakpoint()
 import torch
 import torch.distributions as D
-from tabulate import tabulate
+
+# from tabulate import tabulate
 
 
 # from framework.utils import print_dict
@@ -28,6 +29,95 @@ from termcolor import colored
 torch.autograd.set_detect_anomaly(True)
 torch.set_printoptions(linewidth=300)
 import matplotlib.pyplot as plt
+
+
+class TermGenerator:
+    def __init__(
+        self,
+        input_sample: torch.Tensor,
+        output_sample: torch.Tensor,
+        kernel: MercerKernel,
+    ):
+        """
+        Stores terms used in the calculation of gradients for the likelihood.
+
+        The gradient terms for the likelihood have the following structure:
+            dL/dθ = 0.5 * (y'K^{-1}dK/dθK^{-1}y - tr(K^{-1}dK/dθ))
+
+        Note however that since the kernel is writtedn ΦΛΦ', and the first time
+        is 1x1, we can calculate the first term as:
+                    0.5 * z' δΛ/δθ
+
+        where z = {(Φ'K^-1y)^2}_i, by a trace trick.
+        Opening the WSM formula for the kernel inverse, we get:
+            ΦK^-1y = Φ'y - Φ'Φ(Φ'Φ + Λ^-1)^-1Φ'y
+                   = (I - Φ'Φ(Φ'Φ + Λ^-1)^-1)Φ'y
+        The terms:
+            - Φ'y
+            - Φ'Φ
+        can be pre-computed, so that the final iteration requires
+        only :
+            - calculation of (Φ'Φ + Λ^-1)^{-1}
+            - multiplication of Φ'Φ with that matrix
+            - subtraction from the identity
+            - inner product of the result with Φ'y
+
+        This class offers getter methods for precalculated terms  in order to
+        speed up the calculation, and is constructed once on initialisation of
+        the likelihood.
+        """
+        self.input_sample = input_sample
+        self.output_sample = output_sample
+        self.kernel = kernel
+        self.order = self.kernel.order
+
+        # initialise
+        self.phi_y_data = None
+        self.phi_phi_data = None
+
+    @property
+    def phi_y(self) -> torch.Tensor:
+        """
+        Returns the matrix Φ'y.
+        """
+        if self.phi_y_data is None:
+            self.phi_y_data = (
+                self.kernel.basis(self.input_sample).T @ self.output_sample
+            )
+        return self.phi_y_data
+
+    @property
+    def phi_phi(self) -> torch.Tensor:
+        """
+        Returns the matrix Φ'Φ.
+        """
+        if self.phi_phi_data is None:
+            self.phi_phi_data = self.kernel.basis(
+                self.input_sample
+            ).T @ self.kernel.basis(self.input_sample)
+        return self.phi_phi_data
+
+    def get_vector_term(
+        self, eigenvalues: torch.Tensor, noise: torch.Tensor
+    ) -> torch.Tensor:
+        """
+        Returns the term:
+             z = {(Φ'K^-1y)^2}_i
+        for the inverse.
+        """
+        # calculate the inverse
+        breakpoint()
+        inverse = torch.inverse(
+            self.phi_phi + noise**2 * torch.diag(1 / eigenvalues)
+        )
+        return (
+            (
+                (1 / noise**2)
+                * (torch.eye(self.order) - self.phi_phi @ inverse)
+                @ self.phi_y
+            )
+            ** 2
+        ).squeeze()
 
 
 class Likelihood:
@@ -73,6 +163,9 @@ class Likelihood:
 
         # convergence criterion
         self.epsilon = optimisation_threshold
+
+        # memoisation stuff
+        self.phi_matrix = self.kernel.basis(self.input_sample)
 
     def fit(
         self,
@@ -321,14 +414,13 @@ class Likelihood:
             kernel_gradient_term: dict = self.kernel(
                 self.input_sample, self.input_sample
             )
-
             # calculate the gradient
             data_term = 0.5 * torch.einsum(
                 "i, ij, jk, kl, l -> ",
                 self.output_sample,  # i
-                kernel_inverse,  # ijb
-                kernel_gradient_term,  # jkb
-                kernel_inverse,  # klb
+                kernel_inverse,  # ij
+                kernel_gradient_term,  # jk
+                kernel_inverse,  # kl
                 self.output_sample,  # l
             )
 
@@ -336,6 +428,9 @@ class Likelihood:
                 kernel_inverse @ kernel_gradient_term
             )
             parameter_gradients[param] = data_term - trace_term
+            # WARNING: EXPERIMENTATION ONLY:
+            print("ARE YOU TESTING? IF NOT THIS IS WRONG!")
+            parameter_gradients[param] = data_term  # - trace_term
 
         return parameter_gradients
 
@@ -401,7 +496,7 @@ def get_tabulated_data(
         "Gradients:",
         *parameters_gradients.keys(),
     ]
-    data = tabulate(data, headers=headers_list, tablefmt="grid")
+    # data = tabulate(data, headers=headers_list, tablefmt="grid")
 
     # data = parameters_gradients.copy()
     # headers = [
