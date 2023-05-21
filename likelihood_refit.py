@@ -29,6 +29,7 @@ from termcolor import colored
 torch.autograd.set_detect_anomaly(True)
 torch.set_printoptions(linewidth=300)
 import matplotlib.pyplot as plt
+from typing import Tuple
 
 
 class TermGenerator:
@@ -44,7 +45,7 @@ class TermGenerator:
         The gradient terms for the likelihood have the following structure:
             dL/dθ = 0.5 * (y'K^{-1}dK/dθK^{-1}y - tr(K^{-1}dK/dθ))
 
-        Note however that since the kernel is writtedn ΦΛΦ', and the first time
+        Note however that since the kernel is written ΦΛΦ', and the first time
         is 1x1, we can calculate the first term as:
                     0.5 * z' δΛ/δθ
 
@@ -99,25 +100,28 @@ class TermGenerator:
 
     def get_vector_term(
         self, eigenvalues: torch.Tensor, noise: torch.Tensor
-    ) -> torch.Tensor:
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         Returns the term:
-             z = {(Φ'K^-1y)^2}_i
-        for the inverse.
+             z = {(Φ'K^-1y)^2}_i - (Φ'K^-1Φ)_ii
+        for the inverse. Then, z' δΛ/δθ is the gradient for the parameter.
+
+        This is because tr(AD) = diag(A)'diag(D), where D is diagonal,
+        as an inner product between the vectors that comprise the diagonals
+        of the matrix, when D is diagonal.
         """
         # calculate the inverse
-        breakpoint()
         inverse = torch.inverse(
             self.phi_phi + noise**2 * torch.diag(1 / eigenvalues)
         )
-        return (
-            (
-                (1 / noise**2)
-                * (torch.eye(self.order) - self.phi_phi @ inverse)
-                @ self.phi_y
-            )
-            ** 2
-        ).squeeze()
+        intermediate_term = (1 / noise**2) * (
+            torch.eye(self.order) - self.phi_phi @ inverse
+        )
+
+        data_term = ((intermediate_term @ self.phi_y) ** 2).squeeze()
+
+        trace_term = torch.diag(intermediate_term @ self.phi_phi).squeeze()
+        return data_term - trace_term
 
 
 class Likelihood:
@@ -224,8 +228,6 @@ class Likelihood:
                 trained_parameters[param].data += (
                     self.param_learning_rate * parameters_gradients[param]
                 )
-
-            # print("\n")
 
             if verbose:
                 pass
@@ -398,15 +400,18 @@ class Likelihood:
         input_shape:
             kernel_inverse: [n x n]
             parameters: [b x 1]
-        output shape:
-            [b x 1]
+        output:
+            a dictionary, with each key in "parameters"
+            having a corresponding value of shape [b x 1]
+            which is the gradient of the eigenvalues with
+            respect to that parameter.
         """
         # parameter_gradients is a dictionary of the same keys as parameters
         parameter_gradients = parameters.copy()
 
         eigenvalue_derivatives = self.eigenvalue_generator.derivatives(
             parameters
-        )
+        )  # the dictionary
 
         # get the terms
         for param in parameters:
@@ -429,8 +434,8 @@ class Likelihood:
             )
             parameter_gradients[param] = data_term - trace_term
             # WARNING: EXPERIMENTATION ONLY:
-            print("ARE YOU TESTING? IF NOT THIS IS WRONG!")
-            parameter_gradients[param] = data_term  # - trace_term
+            # print("ARE YOU TESTING? IF NOT THIS IS WRONG!")
+            # parameter_gradients[param] = data_term  # - trace_term
 
         return parameter_gradients
 
