@@ -1,5 +1,4 @@
 # likelihood_refit.py
-# breakpoint()
 import torch
 import torch.distributions as D
 
@@ -147,7 +146,7 @@ class TermGenerator:
             ).squeeze()
         )
         trace_term = noise * torch.trace(intermediate_term).squeeze()
-        return data_term - trace_term
+        return (data_term - trace_term).squeeze()
 
 
 class Likelihood:
@@ -180,7 +179,7 @@ class Likelihood:
         """
         # hyperparameters
         self.order = order
-        self.kernel_derivative = kernel  # will use the same basis
+        self.kernel = kernel
         self.input_sample = input_sample
         self.output_sample = output_sample
         self.eigenvalue_generator = eigenvalue_generator
@@ -285,7 +284,6 @@ class Likelihood:
             print("Not converged: {} iterations completed.".format(iterations))
         final_eigenvalues = self.eigenvalue_generator(trained_parameters)
         print("final eigenvalues:", final_eigenvalues)
-        # breakpoint()
         experiment_order = sum(
             torch.where(
                 final_eigenvalues
@@ -313,15 +311,11 @@ class Likelihood:
             sigma_grad: [1]
             params_grad: [b x 1]
         """
-        # term generator
         eigenvalues = self.eigenvalue_generator(parameters)
-        vector_term = self.term_generator.get_vector_term(eigenvalues, noise)
-        noise_gradient = self.term_generator.get_noise_term(eigenvalues, noise)
 
         # get the terms
-        # the noise gradient if you do it the term_generator way
-        # noise_gradient: torch.Tensor = noise_term
-        # noise_gradient = self.noise_gradient(kernel_inverse, parameters, noise)
+        noise_gradient = self.term_generator.get_noise_term(eigenvalues, noise)
+        vector_term = self.term_generator.get_vector_term(eigenvalues, noise)
         parameters_gradients: dict = self.parameters_gradient(
             vector_term, parameters
         )
@@ -352,21 +346,17 @@ class Likelihood:
         # get the terms
         sigma_gradient_term = 2 * noise * torch.eye(self.input_sample.shape[0])
 
-        # print(
-        # "kernel inverse, is it chacning with noise changes?",
-        # self.kernel.kernel_inverse(self.input_sample),
-        # )
-        # calculate the two terms comprising the gradient
-        data_term = noise * torch.einsum(
-            "i, ij...,  jl..., l  ->",
+        data_term = 0.5 * torch.einsum(
+            "i, ij..., jk..., kl..., l  ->",
             self.output_sample,  # i
             kernel_inverse,  # ij
+            sigma_gradient_term,
             kernel_inverse,  # kl
             self.output_sample,  # l
         )
-        trace_term = noise * torch.trace(kernel_inverse)
+        trace_term = 0.5 * torch.trace(kernel_inverse @ sigma_gradient_term)
 
-        return data_term - trace_term  # the whole noise gradient
+        return (data_term - trace_term).squeeze()  # the whole noise gradient
 
     def parameters_gradient(
         self,
@@ -424,7 +414,6 @@ class Likelihood:
         for param in parameters:
             # get the vector of eigenvalue derivatives for this parameter
             eigenvalue_derivative_vector = eigenvalue_derivatives[param]
-            # breakpoint()
             parameter_gradients[param] = (
                 term_vector @ eigenvalue_derivative_vector
             )

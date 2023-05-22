@@ -157,7 +157,6 @@ class TestLikelihoodRefit(unittest.TestCase):
         )
         self.assertTrue(torch.allclose(data_term, test_data_term_2))
 
-        # breakpoint()
         # # now do it by hand
         phikyvector = self.PhiKyVector()
         phikyvectorsquared = self.PhiKyVector() ** 2
@@ -182,7 +181,6 @@ class TestLikelihoodRefit(unittest.TestCase):
             @ self.eigenvalue_derivatives
         )
 
-        # breakpoint()
         # vector term from term generator
         vector_term = self.term_generator.get_vector_term(
             self.eigenvalues, self.noise
@@ -228,7 +226,6 @@ class TestLikelihoodRefit(unittest.TestCase):
             self.parameters, self.noise
         )
         # self.assertTrue(torch.allclose(term_generator_version, true_term))
-        breakpoint()
         self.assertTrue(true_term.shape == term_generator_version.shape)
 
 
@@ -339,7 +336,7 @@ class TestTermGenerator(unittest.TestCase):
         noise_term = self.term_generator.get_noise_term(
             self.eigenvalues, self.noise
         )
-        self.assertTrue(noise_term.shape == torch.Size([1]))
+        self.assertTrue(noise_term.shape == torch.Size([]))
 
 
 if __name__ == "__main__":
