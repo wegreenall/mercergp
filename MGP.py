@@ -216,14 +216,15 @@ class MercerGP:
         posterior_predictive_mean_evaluation = posterior_predictive_mean(
             test_points
         )
-
+        # breakpoint()
         inputs = self.get_inputs()
         test_matrix = self.kernel(test_points, inputs)
-        kernel_inverse = torch.inverse(
-            self.kernel(inputs, inputs)
-            + (self.kernel.kernel_args["noise_parameter"] ** 2)
-            * torch.eye(len(inputs))
-        )
+        # kernel_inverse = torch.inverse(
+        # self.kernel(inputs, inputs)
+        # + (self.kernel.kernel_args["noise_parameter"] ** 2)
+        # * torch.eye(len(inputs))
+        # )
+        kernel_inverse = self.kernel.kernel_inverse(inputs)
         # kernel_inverse = self.kernel.kernel_inverse(inputs)
         if use_full_predictive:
             # now calculate the variance
@@ -253,7 +254,6 @@ class MercerGP:
                 posterior_predictive_mean_evaluation,
                 posterior_predictive_variance,
             )
-            print("We got it!")
         except ValueError:
             print(colored("FOUND NEGATIVE VARIANCE!", "red"))
             distribution = D.MultivariateNormal(
