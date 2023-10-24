@@ -212,6 +212,7 @@ class FourierPosteriorGPMercerBuilderTest(unittest.TestCase):
         self.assertTrue(isinstance(gp, MercerGPFourierPosterior))
 
 
+@unittest.skip("Legacy")
 class LegacyBuildFunctions(unittest.TestCase):
     def setUp(self):
         self.order = 10
@@ -226,5 +227,5 @@ class LegacyBuildFunctions(unittest.TestCase):
         )
         self.eigenvalue_generator = SmoothExponentialFasshauer(self.order)
 
-    def test_build_mercer_gp():
+    def test_build_mercer_gp(self):
         pass

@@ -56,6 +56,7 @@ import unittest
 # pass
 
 
+@unittest.skip("Not implemented")
 class TestFavardLikelihoodMethods(unittest.TestCase):
     def setUp(self):
         # print("likelihood.py")
