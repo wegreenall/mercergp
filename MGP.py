@@ -62,6 +62,10 @@ class HilbertSpaceElement:
     def __rmul__(self, other):
         if isinstance(other, int) or isinstance(other, float):
             return HilbertSpaceElement(self.basis, self.coefficients * other)
+        else:
+            raise NotImplementedError(
+                "Multiplication only available for int or float"
+            )
 
 
 class MercerGP:
