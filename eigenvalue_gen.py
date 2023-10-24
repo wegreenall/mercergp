@@ -3,6 +3,11 @@ import torch.autograd as autograd
 import math
 from typing import Union, List, Tuple
 from abc import ABC
+from dataclasses import dataclass
+from torchmin import minimize, minimize_constr
+
+# FOR TESTING:
+from termcolor import colored
 
 
 def eigenvalue_reshape(eigenvalue_tensors: torch.Tensor):
@@ -47,6 +52,24 @@ def harmonic(m, k):
     return harmonics
 
 
+@dataclass
+class EigenvalueGeneratorParameter:
+    """
+    A dataclass for the parameters of an eigenvalue generator.
+    """
+
+    variance_parameter: torch.Tensor
+    ard_parameter: torch.Tensor
+    precision_parameter: torch.Tensor
+    noise_parameter: torch.Tensor
+
+
+@dataclass
+class SmoothExponentialFasshauerParameters(EigenvalueGeneratorParameter):
+    ard_parameter: torch.Tensor
+    smoothness_parameter: torch.Tensor
+
+
 class EigenvalueGenerator(ABC):
     """
     When constructing a Mercer Gaussian process kernel, the form of the kernel
@@ -70,7 +93,9 @@ class EigenvalueGenerator(ABC):
         self.order = order
         self.dimension = dimension
 
-    def __call__(self, parameters: dict) -> torch.Tensor:
+    def __call__(
+        self, parameters: Union[dict, EigenvalueGeneratorParameter]
+    ) -> torch.Tensor:
         """
         Returns the eigenvalues, up to the order set at initialisation,
         given the dictionary of parameters 'parameters'.
@@ -78,15 +103,24 @@ class EigenvalueGenerator(ABC):
         self.check_params(parameters)
         raise NotImplementedError("Please use a subclass of this class")
 
-    def check_params(self, parameters: dict):
-        for key in self.required_params:
-            if key not in parameters:
-                print(
-                    "Required parameters not included; please ensure to \
-                    include the required parameters: \n"
-                )
-                print([param for param in self.required_parameters])
-                raise ValueError("Missing required parameter!")
+    def check_params(
+        self, parameters: Union[dict, EigenvalueGeneratorParameter]
+    ):
+        """
+        If the parameters are passed a dictionary, this checks whether all the
+        correct keys have been passed;
+        if passed an EigenvalueGeneratorParameter, this is automatically
+        correct/has its own error checking, so it does not need to be checked.
+        """
+        if isinstance(parameters, dict):
+            for key in self.required_params:
+                if key not in parameters:
+                    print(
+                        "Required parameters not included; please ensure to \
+                        include the required parameters: \n"
+                    )
+                    print([param for param in self.required_parameters])
+                    raise ValueError("Missing required parameter!")
         return True
 
     def derivatives(self, parameters: dict) -> dict:
@@ -95,11 +129,25 @@ class EigenvalueGenerator(ABC):
         """
         raise NotImplementedError("Please use a subclass of this class")
 
+    def inverse(self, eigenvalues: torch.Tensor) -> dict:
+        """
+        Given a set of eigenvalues, returns a dict containing parameters that
+        induced them. This should be identifiable since the parameter space is
+        smaller than the sequence of eigenvalues, and we assume a common
+        functional form.
+        """
+        raise NotImplementedError("Please use a subclass of this class")
+
 
 class SmoothExponentialFasshauer(EigenvalueGenerator):
     required_parameters = ["ard_parameter", "precision_parameter"]
 
-    def __call__(self, parameters: Union[list, dict, Tuple]) -> torch.Tensor:
+    def __call__(
+        self,
+        parameters: Union[
+            list, dict, Tuple, SmoothExponentialFasshauerParameters
+        ],
+    ) -> torch.Tensor:
         # if we are passed a list, then it will be for multiple dimensions
         # for parameter in self.required_parameters:
         # if self.dimension != parameters[parameter].shape[-1]:
@@ -108,12 +156,12 @@ class SmoothExponentialFasshauer(EigenvalueGenerator):
         # )
         if isinstance(parameters, dict):
             parameters = (parameters,)
-
-        if len(parameters) != self.dimension:
-            raise ValueError(
-                "The number of parameter dicts passed must match the \
-                 dimension parameter"
-            )
+        elif isinstance(parameters, list) or isinstance(parameters, tuple):
+            if len(parameters) != self.dimension:
+                raise ValueError(
+                    "The number of parameter dicts passed must match the \
+                     dimension parameter"
+                )
 
         eigens_tensor = torch.zeros(self.order, self.dimension)
         for d in range(self.dimension):
@@ -162,10 +210,90 @@ class SmoothExponentialFasshauer(EigenvalueGenerator):
         ] = self._variance_parameter_derivative(parameters)
         return vector_gradients
 
+    def inverse(
+        self, target_eigenvalues: torch.Tensor, initial_params: torch.Tensor
+    ) -> dict:
+        """
+        Given a set of eigenvalues, returns a dict containing parameters that
+        induced them. This should be identifiable since the parameter space is
+        smaller than the sequence of eigenvalues, and we assume a common
+        functional form.
+
+        Furthermore, the precision parameter is not identifiable from the
+        ard_parameter, so we leave it fixed (arbitrarily).
+        """
+        # use torchmin to solve the inverse problem
+        # objective = lambda params: torch.norm(
+        # target_eigenvalues - self(params)
+        # )
+        guess_params = initial_params.copy()
+        suboptimal = True
+        counter = 0
+        while suboptimal:
+            counter += 1
+            derivatives = self.derivatives(guess_params)
+            ard_learning_rate = 0.8
+            variance_learning_rate = 0.8
+
+            # calculate the new parameters
+            sum_term = 2 * (target_eigenvalues - self(guess_params))
+            new_ard_parameter = guess_params["ard_parameter"] + torch.sum(
+                ard_learning_rate * derivatives["ard_parameter"] * sum_term
+            )
+            new_variance_parameter = guess_params[
+                "variance_parameter"
+            ] + torch.sum(
+                variance_learning_rate
+                * derivatives["variance_parameter"]
+                * sum_term
+            )
+            stopped_changing_ard = torch.allclose(
+                new_ard_parameter, guess_params["ard_parameter"]
+            )
+            stopped_changing_variance = torch.allclose(
+                new_variance_parameter, guess_params["variance_parameter"]
+            )
+            # print("ard:", new_ard_parameter)
+            # print("variance:", new_variance_parameter)
+
+            if stopped_changing_ard and stopped_changing_variance:
+                print("Parameter values stopped changing")
+
+            # update the actual parameters
+            guess_params["ard_parameter"] = new_ard_parameter
+            guess_params["variance_parameter"] = new_variance_parameter
+
+            distance = torch.norm(target_eigenvalues - self(guess_params))
+            if counter % 200 == 0:
+                print("distance:", distance)
+                # print("counter:", counter)
+            # print("\n")
+            # print("ard:", guess_params["ard_parameter"])
+            # print("variance:", guess_params["variance_parameter"])
+            suboptimal = distance > 1e-6 and not (
+                stopped_changing_ard and stopped_changing_variance
+            )
+            # print(suboptimal)
+
+        return guess_params
+
     def _smooth_exponential_eigenvalues_fasshauer(self, parameters: dict):
-        return parameters[
-            "variance_parameter"
-        ] * self._raw_smooth_exponential_eigenvalues_fasshauer(parameters)
+        if isinstance(parameters, dict):
+            return parameters[
+                "variance_parameter"
+            ] * self._raw_smooth_exponential_eigenvalues_fasshauer(parameters)
+        elif isinstance(parameters, SmoothExponentialFasshauerParameters):
+            return (
+                parameters.variance_parameter
+                * self._raw_smooth_exponential_eigenvalues_fasshauer(
+                    parameters
+                )
+            )
+        else:
+            raise ValueError(
+                "The parameters passed are not of the correct type. Please pass either\
+                a dictionary or a SmoothExponentialFasshauerParameters object."
+            )
 
     def _raw_smooth_exponential_eigenvalues_fasshauer(self, parameters: dict):
         """
@@ -179,8 +307,14 @@ class SmoothExponentialFasshauer(EigenvalueGenerator):
             - order: the degree up to which the eigenvalues should be computed.
             - params: a dictionary of parameters whose keys included
         """
-        b = torch.diag(parameters["ard_parameter"])  # ε  - of dimension d
-        a = torch.diag(parameters["precision_parameter"])  # precision
+        if isinstance(parameters, dict):
+            ard_parameter = parameters["ard_parameter"]
+            precision_parameter = parameters["precision_parameter"]
+        elif isinstance(parameters, SmoothExponentialFasshauerParameters):
+            ard_parameter = parameters.ard_parameter
+            precision_parameter = parameters.precision_parameter
+        b = torch.diag(ard_parameter)  # ε  - of dimension d
+        a = torch.diag(precision_parameter)  # precision
         c = torch.sqrt(a**2 + 2 * a * b)
         left_term = torch.sqrt(2 * a / (a + b + c))
         right_term = b / (a + b + c)
@@ -197,9 +331,14 @@ class SmoothExponentialFasshauer(EigenvalueGenerator):
         Returns a vector of gradients of the eigenvalues w.r.t
         the ard parameter.
         """
-        sigma = parameters["variance_parameter"]
-        b = torch.diag(parameters["ard_parameter"])  # ε  - of dimension d
-        a = torch.diag(parameters["precision_parameter"])  # precision
+        if isinstance(parameters, dict):
+            sigma = parameters["variance_parameter"]
+            b = torch.diag(parameters["ard_parameter"])  # ε  - of dimension d
+            a = torch.diag(parameters["precision_parameter"])  # precision
+        elif isinstance(parameters, SmoothExponentialFasshauerParameters):
+            sigma = parameters.variance_parameter
+            b = torch.diag(parameters.ard_parameter)
+            a = torch.diag(parameters.precision_parameter)
         c = a**2 + 2 * a * b
         # eigenvalue_derivatives = torch.zeros(self.order)
 
@@ -241,27 +380,40 @@ class SmoothExponentialFasshauer(EigenvalueGenerator):
         Returns a vector of gradients of the eigenvalues w.r.t
         the precision parameter.
         """
+        if isinstance(parameters, dict):
+            b = torch.diag(parameters["ard_parameter"])
+            a = torch.diag(parameters["precision_parameter"])
+        elif isinstance(parameters, SmoothExponentialFasshauerParameters):
+            b = torch.diag(parameters.ard_parameter)
+            a = torch.diag(parameters.precision_parameter)
+
         b = torch.diag(parameters["ard_parameter"])  # ε  - of dimension d
         a = torch.diag(parameters["precision_parameter"])  # precision
         c = torch.sqrt(a**2 + 2 * a * b)
         eigenvalue_derivatives = torch.zeros(self.order)
-        index_vector = torch.linspace(0, self.order - 1, self.order)
 
-        denominator_derivative = 1 + 0.5 * torch.pow(
-            a**2 + 2 * a * b, -0.5
-        ) * (2 * a + 2 * b)
+        # check whether it works like this or not (although i can't see why!)
+        # index_vector = torch.linspace(0, self.order - 1, self.order)
+        index_vector_alternative = torch.linspace(1, self.order, self.order)
+        index_vector = index_vector_alternative
 
+        c_derivative = 0.5 * (1 / c) * (2 * a + 2 * b)
+        denominator_derivative = 1 + c_derivative
+
+        # L
         L = torch.sqrt(2 * a / (a + b + c))
-        # dL/da
-        dL = (
-            (0.5 * torch.pow((2 * a / (a + b + c)), -0.5))
-            * (2 * (a + b + c) - 2 * a * denominator_derivative)
-            / (a + b + c) ** 2
-        )
+
         # R
         R = (b / (a + b + c)) ** index_vector
 
-        # dR
+        # dL/da
+        dL = (
+            (0.5 * 1 / L)
+            * (2 * (a + b + c) - 2 * a * denominator_derivative)
+            / (a + b + c) ** 2
+        )
+
+        # dR/da
         dR = (
             index_vector
             * (torch.pow((b / (a + b + c)), (index_vector - 1)))
@@ -273,7 +425,7 @@ class SmoothExponentialFasshauer(EigenvalueGenerator):
         # assert (term_1 == dL * R).all()
         # assert (term_2 == dR * L).all()
         # print("precision derivs:", colored(eigenvalue_derivatives, "red"))
-        eigenvalue_derivatives = torch.zeros(eigenvalue_derivatives.shape)
+        # eigenvalue_derivatives = torch.zeros(eigenvalue_derivatives.shape)
         return eigenvalue_derivatives.squeeze()
 
 
