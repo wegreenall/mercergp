@@ -164,6 +164,23 @@ class StationaryKernel:
         return NotImplementedError
 
 
+class ProductKernel(StationaryKernel):
+    def __init__(
+        self, left_kernel: StationaryKernel, right_kernel: StationaryKernel
+    ):
+        self.left_kernel = left_kernel
+        self.right_kernel = right_kernel
+        return
+
+    def __call__(self, input_points: torch.Tensor, test_points: torch.Tensor):
+        left_matrix = self.left_kernel(input_points, test_points)
+        right_matrix = self.right_kernel(input_points, test_points)
+        return left_matrix * right_matrix
+
+    def _validate_shape():
+        return
+
+
 class SmoothExponentialKernel(StationaryKernel):
     required_kernel_arguments = {
         "noise_parameter",
