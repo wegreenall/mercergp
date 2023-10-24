@@ -4,6 +4,7 @@ from ortho.orthopoly import (
     OrthogonalBasisFunction,
     SymmetricOrthonormalPolynomial,
 )
+from ortho.basis_functions import Basis
 from mercergp.eigenvalue_gen import (
     PolynomialEigenvalues,
     SmoothExponentialFasshauer,
@@ -81,6 +82,7 @@ class TestSmoothExponentialFasshauerEigenvalueGenerator(unittest.TestCase):
         self.order = 10
         self.precision_parameter = 1.0
         self.ard_parameter = 1.0
+        self.variance_parameter = 1.0
         self.dimension = 1
         self.eigenvalue_generator = SmoothExponentialFasshauer(
             self.order, self.dimension
@@ -88,7 +90,7 @@ class TestSmoothExponentialFasshauerEigenvalueGenerator(unittest.TestCase):
         self.params = {
             "precision_parameter": torch.Tensor([[self.precision_parameter]]),
             "ard_parameter": torch.Tensor([[self.ard_parameter]]),
-            "variance_parameter": torch.Tensor([1.0]),
+            "variance_parameter": torch.Tensor([[self.variance_parameter]]),
         }
         pass
 
@@ -143,6 +145,25 @@ class TestSmoothExponentialFasshauerEigenvalueGenerator(unittest.TestCase):
             )
         )
         self.assertTrue(derivatives.shape, torch.Size([self.order]))
+
+    def test_inverse(self):
+        eigens = self.eigenvalue_generator(self.params)
+        result_params = self.eigenvalue_generator.inverse(eigens)
+        # print("params", result_params)
+        # print(self.params)
+        # breakpoint()
+        self.assertTrue(
+            torch.allclose(
+                result_params["variance_parameter"],
+                torch.Tensor([[self.variance_parameter]]),
+            )
+        )
+        self.assertTrue(
+            torch.allclose(
+                result_params["ard_parameter"],
+                torch.Tensor([[self.ard_parameter]]),
+            )
+        )
 
 
 class TestMultivariateSmoothExponentialFasshauerEigenvalueGenerator(
@@ -214,14 +235,21 @@ class TestFavardEigenvalueGenerator(unittest.TestCase):
         self.order = 10
         self.precision_parameter = 1.0
         self.ard_parameter = 1.0
-
-        self.eigenvalue_generator = FavardEigenvalues(
+        betas = torch.Tensor([1.0] * 2 * self.order)
+        gammas = torch.Tensor([1.0] * 2 * self.order)
+        params = {
+            "precision_parameter": torch.Tensor([self.precision_parameter]),
+            "ard_parameter": torch.Tensor([self.ard_parameter]),
+            "degree": 6,
+        }
+        self.basis = Basis(
+            OrthogonalBasisFunction(self.order, betas, gammas),
+            1,
             self.order,
-            torch.Tensor([1.0]),
-            torch.Tensor([1.0]),
-            torch.Tensor([1.0]),
+            params,
         )
-        pass
+
+        self.eigenvalue_generator = FavardEigenvalues(self.order, self.basis)
 
     def test_shape(self):
         params = {

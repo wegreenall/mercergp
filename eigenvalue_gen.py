@@ -634,17 +634,60 @@ class FavardEigenvalues(EigenvalueGenerator):
 
 
 if __name__ == "__main__":
+    test_inverse = True
+    test_harmonics = False
     order = 10
     dimension = 1
-    eigengen = SmoothExponentialFasshauer(order, dimension)
-    terms = 80
-    numbers = list(range(1, terms))
-    harmonics = [harmonic(m, 1) for m in numbers]
-    logs = [math.log(m) for m in numbers]
-    mascheronis = [harmonic - log for harmonic, log in zip(harmonics, logs)]
-    # print(mascheronis)
-    true_mascheronis = [0.57721566] * terms
+    if test_harmonics:
+        eigengen = SmoothExponentialFasshauer(order, dimension)
+        terms = 80
+        numbers = list(range(1, terms))
+        harmonics = [harmonic(m, 1) for m in numbers]
+        logs = [math.log(m) for m in numbers]
+        mascheronis = [
+            harmonic - log for harmonic, log in zip(harmonics, logs)
+        ]
+        # print(mascheronis)
+        true_mascheronis = [0.57721566] * terms
     # plt.plot(harmonics)
     # plt.plot(mascheronis)
     # plt.plot(true_mascheronis)
     # plt.show()
+    eigenvalue_generator = SmoothExponentialFasshauer(order, dimension)
+    if test_inverse:
+        initial_params = {
+            "ard_parameter": torch.Tensor([1.0]),
+            "precision_parameter": torch.Tensor([1.0]),
+            "variance_parameter": torch.Tensor([1.0]),
+        }
+        eigens = eigenvalue_generator(initial_params)
+        params = eigenvalue_generator.inverse(eigens)
+        print("ard:", params["ard_parameter"], initial_params["ard_parameter"])
+        print(
+            "precision:",
+            params["precision_parameter"],
+            initial_params["precision_parameter"],
+        )
+        print(
+            "variance:",
+            params["variance_parameter"],
+            initial_params["variance_parameter"],
+        )
+        print(
+            torch.allclose(
+                params["precision_parameter"],
+                initial_params["precision_parameter"],
+            )
+        )
+        print(
+            torch.allclose(
+                params["ard_parameter"],
+                initial_params["ard_parameter"],
+            )
+        )
+        print(
+            torch.allclose(
+                params["variance_parameter"],
+                initial_params["variance_parameter"],
+            )
+        )
