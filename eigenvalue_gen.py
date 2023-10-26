@@ -8,6 +8,36 @@ from torchmin import minimize, minimize_constr
 
 # FOR TESTING:
 from termcolor import colored
+from matplotlib import pyplot as plt
+
+from math import prod
+
+
+def anti_sum(tensor: torch.Tensor, dim: int):
+    """
+    Sums over all but one of the dimensions, up to a count of 26 dimensions,
+    by using the torch einsum tool
+
+    :param tensor: the tensor to sum over
+    :param dim: dimension not to sum over
+    """
+    args = "abcdefghijklmnopqrstuvqxyz"
+
+    start_argstring = ""
+    end_argstring = ""
+    dimension_count = len(tensor.shape)
+    for d in range(dimension_count):
+        start_argstring += args[d]
+        # i.e. we're at the last element
+        # if d != dimension_count-1:
+        #    start_argstring += ','
+
+    start_argstring += " -> "
+    end_argstring += args[dim]
+
+    argstring = start_argstring + end_argstring
+    result = torch.einsum(argstring, tensor)
+    return result
 
 
 def eigenvalue_reshape(eigenvalue_tensors: torch.Tensor):
@@ -129,7 +159,11 @@ class EigenvalueGenerator(ABC):
         """
         raise NotImplementedError("Please use a subclass of this class")
 
-    def inverse(self, eigenvalues: torch.Tensor) -> dict:
+    def inverse(
+        self,
+        eigenvalues: torch.Tensor,
+        initial_params: Union[List[dict], dict],
+    ) -> Union[List[dict], dict]:
         """
         Given a set of eigenvalues, returns a dict containing parameters that
         induced them. This should be identifiable since the parameter space is
@@ -142,39 +176,60 @@ class EigenvalueGenerator(ABC):
 class SmoothExponentialFasshauer(EigenvalueGenerator):
     required_parameters = ["ard_parameter", "precision_parameter"]
 
+    def _check_parameters(
+        self,
+        parameters: Union[List[dict], dict],
+    ) -> Union[Tuple[dict], List[dict]]:
+        """
+        if we are passed a list, then it will be for multiple dimensions
+        for parameter in self.required_parameters:
+        """
+        if isinstance(parameters, dict):
+            parameters_list = [parameters]
+        elif isinstance(parameters, list) or isinstance(parameters, tuple):
+            parameters_list = parameters
+            if len(parameters) != self.dimension:
+                raise ValueError(
+                    "The number of parameter dicts passed must match the \
+                     dimension parameter"
+                )
+            for params in parameters_list:
+                for param in self.required_parameters:
+                    if param not in params:
+                        raise ValueError(
+                            "The parameter "
+                            + param
+                            + " is required but not found"
+                        )
+        return parameters_list
+
     def __call__(
         self,
         parameters: Union[
             list, dict, Tuple, SmoothExponentialFasshauerParameters
         ],
     ) -> torch.Tensor:
-        # if we are passed a list, then it will be for multiple dimensions
-        # for parameter in self.required_parameters:
-        # if self.dimension != parameters[parameter].shape[-1]:
-        # raise ValueError(
-        # "The parameter " + parameter + " has the wrong shape"
-        # )
-        if isinstance(parameters, dict):
-            parameters = (parameters,)
-        elif isinstance(parameters, list) or isinstance(parameters, tuple):
-            if len(parameters) != self.dimension:
-                raise ValueError(
-                    "The number of parameter dicts passed must match the \
-                     dimension parameter"
-                )
-
-        eigens_tensor = torch.zeros(self.order, self.dimension)
-        for d in range(self.dimension):
+        parameters = self._check_parameters(parameters)
+        eigens_tensor = torch.zeros(self.order, len(parameters))
+        for d, param_set in enumerate(parameters):
+            # for d in range(self.dimension):
             eigens = self._smooth_exponential_eigenvalues_fasshauer(
-                parameters[d]
+                param_set
             )  # m x dim
-            eigens_tensor[:, d] = eigens
-
+            try:
+                eigens_tensor[:, d] = eigens
+            except RuntimeError as e:
+                print(e)
+                breakpoint()
         product_eigens = eigenvalue_reshape(eigens_tensor)
-        result = torch.reshape(product_eigens, (self.order**self.dimension,))
+        result = torch.reshape(
+            product_eigens, (self.order ** len(parameters),)
+        )
         return result
 
-    def derivatives(self, parameters: dict) -> dict:
+    def derivatives(
+        self, parameters: Union[List[dict], dict]
+    ) -> Union[List[dict], dict]:
         """
         Returns the derivatives of the eigenvalues w.r.t the parameters.
 
@@ -183,35 +238,39 @@ class SmoothExponentialFasshauer(EigenvalueGenerator):
         w.r.t that parameter. Each element will be a vector of gradients
         with respect to the given parameter.
         """
-        for param in self.required_parameters:
-            if param not in parameters:
-                raise ValueError(
-                    "The parameter " + param + " is required but not found"
-                )
+        # convert from dict to list so we can iterate over the dimensions, even
+        # if there is only one
+        parameters = self._check_parameters(parameters)
 
-        vector_gradients = parameters.copy()
+        vector_gradients_list = []
+        # other_eigen_term = prod(self(parameters))
+        for params in parameters:
+            vector_gradients: dict = {}
+            # ard_parameter
+            vector_gradients["ard_parameter"] = self._ard_parameter_derivative(
+                params
+            )
 
-        # ard_parameter
-        vector_gradients["ard_parameter"] = self._ard_parameter_derivative(
-            parameters
-        )
-        # precision parameter
-        vector_gradients[
-            "precision_parameter"
-        ] = self._precision_parameter_derivative(parameters)
+            # precision parameter
+            vector_gradients[
+                "precision_parameter"
+            ] = self._precision_parameter_derivative(params)
 
-        # since we pass in all of the dictionary, we need to also
-        # set the "noise_parameter" gradient to zeroes
-        vector_gradients["noise_parameter"] = torch.zeros(self.order)
+            # since we pass in all of the dictionary, we need to also
+            # set the "noise_parameter" gradient to zeroes
+            vector_gradients["noise_parameter"] = torch.zeros(self.order)
 
-        # variance parameter
-        vector_gradients[
-            "variance_parameter"
-        ] = self._variance_parameter_derivative(parameters)
-        return vector_gradients
+            # variance parameter
+            vector_gradients[
+                "variance_parameter"
+            ] = self._variance_parameter_derivative(params)
+            vector_gradients_list.append(vector_gradients)
+        return vector_gradients_list
 
     def inverse(
-        self, target_eigenvalues: torch.Tensor, initial_params: torch.Tensor
+        self,
+        target_eigenvalues: torch.Tensor,
+        initial_params: Union[List[dict], dict],
     ) -> dict:
         """
         Given a set of eigenvalues, returns a dict containing parameters that
@@ -222,60 +281,128 @@ class SmoothExponentialFasshauer(EigenvalueGenerator):
         Furthermore, the precision parameter is not identifiable from the
         ard_parameter, so we leave it fixed (arbitrarily).
         """
-        # use torchmin to solve the inverse problem
-        # objective = lambda params: torch.norm(
-        # target_eigenvalues - self(params)
-        # )
-        guess_params = initial_params.copy()
+        initial_params = self._check_parameters(initial_params)
+        guess_params = initial_params.copy()  # defined outside the loop...
+
+        # initialise the loop variables
         suboptimal = True
         counter = 0
+        ard_learning_rate = 1
+        variance_learning_rate = 1
         while suboptimal:
-            counter += 1
-            derivatives = self.derivatives(guess_params)
-            ard_learning_rate = 0.8
-            variance_learning_rate = 0.8
+            # get the derivatives
+            derivatives = self.derivatives(
+                guess_params
+            )  # will be a list of dicts of parameter derivatives
+            eigens = self(guess_params)
+            stopped_changing_variance = True
+            stopped_changing_ard = True
 
-            # calculate the new parameters
-            sum_term = 2 * (target_eigenvalues - self(guess_params))
-            new_ard_parameter = guess_params["ard_parameter"] + torch.sum(
-                ard_learning_rate * derivatives["ard_parameter"] * sum_term
+            # for each dimension's set of parameters,
+            eigen_prod_term = prod(
+                [self(param_set) for param_set in guess_params]
             )
-            new_variance_parameter = guess_params[
-                "variance_parameter"
-            ] + torch.sum(
-                variance_learning_rate
-                * derivatives["variance_parameter"]
-                * sum_term
-            )
-            stopped_changing_ard = torch.allclose(
-                new_ard_parameter, guess_params["ard_parameter"]
-            )
-            stopped_changing_variance = torch.allclose(
-                new_variance_parameter, guess_params["variance_parameter"]
-            )
-            # print("ard:", new_ard_parameter)
-            # print("variance:", new_variance_parameter)
 
-            if stopped_changing_ard and stopped_changing_variance:
-                print("Parameter values stopped changing")
+            # print("before loop:", guess_params)
 
-            # update the actual parameters
-            guess_params["ard_parameter"] = new_ard_parameter
-            guess_params["variance_parameter"] = new_variance_parameter
+            # torch.reshape(
+            # target_eigenvalues, (self.order, self.order)
+            # )  # m x m
+            for param_set, derivative_set in zip(guess_params, derivatives):
+                sum_term = self._get_sum_term(
+                    eigens, target_eigenvalues, guess_params, param_set
+                )
+                # print("sign of sum_term:", torch.sign(sum_term))
+
+                # calculate each updated parameter
+                new_ard_parameter = param_set[
+                    "ard_parameter"
+                ] - ard_learning_rate * (
+                    sum_term @ derivative_set["ard_parameter"]
+                )
+
+                new_variance_parameter = param_set[
+                    "variance_parameter"
+                ] - variance_learning_rate * (
+                    sum_term @ derivative_set["variance_parameter"]
+                )
+
+                # check if they stopped changing
+                stopped_changing_ard &= torch.allclose(
+                    new_ard_parameter, param_set["ard_parameter"]
+                )
+                stopped_changing_variance &= torch.allclose(
+                    new_variance_parameter, param_set["variance_parameter"]
+                )
+
+                if stopped_changing_ard and stopped_changing_variance:
+                    print(colored("Parameter values stopped changing", "blue"))
+
+                # update the actual parameters
+                param_set["ard_parameter"] = new_ard_parameter
+                param_set["variance_parameter"] = new_variance_parameter
 
             distance = torch.norm(target_eigenvalues - self(guess_params))
             if counter % 200 == 0:
                 print("distance:", distance)
-                # print("counter:", counter)
-            # print("\n")
-            # print("ard:", guess_params["ard_parameter"])
-            # print("variance:", guess_params["variance_parameter"])
+
             suboptimal = distance > 1e-6 and not (
                 stopped_changing_ard and stopped_changing_variance
             )
-            # print(suboptimal)
+            counter += 1
 
+        # if the dimension is one, don't return a list,
+        # just leave it as is!
+        if self.dimension == 1:
+            return guess_params[0]
         return guess_params
+
+    def _get_sum_term(
+        self,
+        eigens: torch.Tensor,
+        target_eigens: torch.Tensor,
+        parameters: Union[List[dict], dict],
+        current_params: dict,
+    ):
+        """
+        Calculates the sum term for the inverse method.
+
+        The norm between the true eigens and the current eigens
+        is written:
+                Σ_k (λ_k - λ*_k)^2
+
+        Taking the derivative, we get:
+                Σ_κ 2(λ_k - λ*_k) * dλ_k/dθ
+                     or, in e.g. 2-d
+                Σ_i Σ_j 2(λ_iλ_j - λ*_ij) * dλ_i/dθ * λ_j
+
+                            Δλ'S
+        where:
+            - Δλ = dλ_k/dθ (as a vector of partial derivatives)
+            - S = Σ_j 2(λ_i λ_j - λ*_ij) λ_j
+
+        This function returns S.
+        """
+        eigens_reshaped = torch.reshape(eigens, [self.order] * len(parameters))
+        target_eigens_reshaped = torch.reshape(
+            target_eigens, [self.order] * len(parameters)
+        )
+
+        matrix_eigens = eigens_reshaped - target_eigens_reshaped
+        try:
+            # print("current params:", current_params)
+            # print("param_set", parameters)
+            eigen_prod_term = prod(
+                [self(param_set) for param_set in parameters]
+            ) / self(current_params)
+
+        except RuntimeError as e:
+            print(e)
+            eigen_vals = [self(param_set) for param_set in parameters]
+            current_eigs = self(current_params)
+            # breakpoint()
+        sum_term = anti_sum((2 * matrix_eigens * eigen_prod_term), 0)
+        return sum_term
 
     def _smooth_exponential_eigenvalues_fasshauer(self, parameters: dict):
         if isinstance(parameters, dict):
@@ -634,7 +761,8 @@ class FavardEigenvalues(EigenvalueGenerator):
 
 
 if __name__ == "__main__":
-    test_inverse = True
+    test_inverse = False
+    test_inverse_multivariate = True
     test_harmonics = False
     order = 10
     dimension = 1
@@ -653,16 +781,25 @@ if __name__ == "__main__":
     # plt.plot(mascheronis)
     # plt.plot(true_mascheronis)
     # plt.show()
-    eigenvalue_generator = SmoothExponentialFasshauer(order, dimension)
     if test_inverse:
+        eigenvalue_generator = SmoothExponentialFasshauer(order, dimension)
         initial_params = {
             "ard_parameter": torch.Tensor([1.0]),
             "precision_parameter": torch.Tensor([1.0]),
             "variance_parameter": torch.Tensor([1.0]),
         }
+        initial_guess_params = {
+            "ard_parameter": torch.Tensor([5.0]),
+            "precision_parameter": torch.Tensor([1.0]),
+            "variance_parameter": torch.Tensor([5.0]),
+        }
         eigens = eigenvalue_generator(initial_params)
-        params = eigenvalue_generator.inverse(eigens)
-        print("ard:", params["ard_parameter"], initial_params["ard_parameter"])
+        params = eigenvalue_generator.inverse(eigens, initial_guess_params)
+        print(
+            "ard:",
+            params["ard_parameter"],
+            initial_params["ard_parameter"],
+        )
         print(
             "precision:",
             params["precision_parameter"],
@@ -689,5 +826,79 @@ if __name__ == "__main__":
             torch.allclose(
                 params["variance_parameter"],
                 initial_params["variance_parameter"],
+            )
+        )
+    if test_inverse_multivariate:
+        dimension = 2
+        eigenvalue_generator = SmoothExponentialFasshauer(order, dimension)
+        initial_params = [
+            {
+                "ard_parameter": torch.Tensor([1.0]),
+                "precision_parameter": torch.Tensor([0.1]),
+                "variance_parameter": torch.Tensor([1.0]),
+            }
+        ] * 2
+        initial_guess_params = [
+            {
+                "ard_parameter": torch.Tensor([5.0]),
+                "precision_parameter": torch.Tensor([0.1]),
+                "variance_parameter": torch.Tensor([5.0]),
+            }
+        ] * 2
+        eigens = eigenvalue_generator(initial_params)  # get the eigens...
+        print("True eigenvalues:", eigens)
+        # plt.plot(eigens)
+        # plt.show()
+        plt.imshow(eigens.reshape((order, order)))
+        plt.show()
+        params = eigenvalue_generator.inverse(eigens, initial_guess_params)
+        print("First dimension:")
+        print(
+            "ard:",
+            params[0]["ard_parameter"],
+            initial_params[0]["ard_parameter"],
+        )
+        print(
+            "precision:",
+            params[0]["precision_parameter"],
+            initial_params[0]["precision_parameter"],
+        )
+        print(
+            "variance:",
+            params[0]["variance_parameter"],
+            initial_params[0]["variance_parameter"],
+        )
+        print("Second dimension:")
+        print(
+            "ard:",
+            params[1]["ard_parameter"],
+            initial_params[1]["ard_parameter"],
+        )
+        print(
+            "precision:",
+            params[1]["precision_parameter"],
+            initial_params[1]["precision_parameter"],
+        )
+        print(
+            "variance:",
+            params[1]["variance_parameter"],
+            initial_params[1]["variance_parameter"],
+        )
+        # print(
+        # torch.allclose(
+        # params[1]["precision_parameter"],
+        # initial_params[1]["precision_parameter"],
+        # )
+        # )
+        print(
+            torch.allclose(
+                params[1]["ard_parameter"],
+                initial_params[1]["ard_parameter"],
+            )
+        )
+        print(
+            torch.allclose(
+                params[1]["variance_parameter"],
+                initial_params[1]["variance_parameter"],
             )
         )

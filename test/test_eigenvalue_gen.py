@@ -115,8 +115,6 @@ class TestSmoothExponentialFasshauerEigenvalueGenerator(unittest.TestCase):
 
     # @unittest.skip("weird")
     def test_differential(self):
-        # eigens = self.eigenvalue_generator(self.params)
-        # true_eigens = torch.Tensor([])
         altered_params = {
             "precision_parameter": torch.Tensor(
                 [self.precision_parameter + 0.5]
@@ -146,22 +144,45 @@ class TestSmoothExponentialFasshauerEigenvalueGenerator(unittest.TestCase):
         )
         self.assertTrue(derivatives.shape, torch.Size([self.order]))
 
-    def test_inverse(self):
+    def test_derivatives(self):
+        # a test when it's one dict;
+        derivatives = self.eigenvalue_generator.derivatives(self.params)
+        self.assertTrue(isinstance(derivatives, list))
+        self.assertTrue(len(derivatives) == 1)
+
+    def test_inverse_variance(self):
         eigens = self.eigenvalue_generator(self.params)
-        result_params = self.eigenvalue_generator.inverse(eigens)
-        # print("params", result_params)
-        # print(self.params)
-        # breakpoint()
+        initial_params = {
+            "precision_parameter": torch.Tensor([1.0]),
+            "ard_parameter": torch.Tensor([5.0]),
+            "variance_parameter": torch.Tensor([5.0]),
+        }
+        result_params = self.eigenvalue_generator.inverse(
+            eigens, initial_params
+        )
         self.assertTrue(
             torch.allclose(
                 result_params["variance_parameter"],
                 torch.Tensor([[self.variance_parameter]]),
+                rtol=1e-3,
             )
+        )
+
+    def test_inverse_ard(self):
+        eigens = self.eigenvalue_generator(self.params)
+        initial_params = {
+            "precision_parameter": torch.Tensor([1.0]),
+            "ard_parameter": torch.Tensor([5.0]),
+            "variance_parameter": torch.Tensor([5.0]),
+        }
+        result_params = self.eigenvalue_generator.inverse(
+            eigens, initial_params
         )
         self.assertTrue(
             torch.allclose(
                 result_params["ard_parameter"],
                 torch.Tensor([[self.ard_parameter]]),
+                rtol=1e-3,
             )
         )
 
@@ -190,44 +211,111 @@ class TestMultivariateSmoothExponentialFasshauerEigenvalueGenerator(
         pass
 
     def test_shape(self):
-        # params = {
-        # "precision_parameter": torch.Tensor([self.precision_parameter]),
-        # "ard_parameter": torch.Tensor([self.ard_parameter]),
-        # }
         eigens = self.eigenvalue_generator(self.params)
         self.assertEqual(
             eigens.shape, torch.Size([self.order**self.dimension])
         )
 
-    @unittest.skip("Not Implemented for multi dimensional")
+    # @unittest.skip("Not Implemented for multi dimensional")
     def test_values(self):
+        # get the eigens
         eigens = self.eigenvalue_generator(self.params)
+
+        # get the apparent true values
         left_term = math.sqrt(2 / (2 + math.sqrt(3)))
         right_term = 1 / (2 + math.sqrt(3))
-        true_eigens = left_term * (
+        base_eigens = left_term * (
             right_term ** torch.linspace(0, self.order - 1, self.order)
         )
+
+        # now construct tensor product
+        true_eigens = torch.einsum(
+            "i,j->ij", base_eigens, base_eigens
+        ).flatten()
+
+        # check if they're the same
         self.assertTrue(torch.allclose(eigens, true_eigens))
 
-    # @unittest.skip("weird")
-    @unittest.skip("Not Implemented for multi dimensional")
     def test_differential(self):
-        # eigens = self.eigenvalue_generator(self.params)
-        # true_eigens = torch.Tensor([])
-        altered_params = {
+        # set up the sets of parameters
+        altered_params_1 = {
             "precision_parameter": torch.Tensor(
                 [self.precision_parameter + 0.5]
             ),
             "ard_parameter": torch.Tensor([self.ard_parameter + 0.5]),
             "variance_parameter": torch.Tensor([1.0]),
         }
+        altered_params_2 = {
+            "precision_parameter": torch.Tensor(
+                [self.precision_parameter + 0.5]
+            ),
+            "ard_parameter": torch.Tensor([self.ard_parameter + 0.5]),
+            "variance_parameter": torch.Tensor([1.0]),
+        }
+        altered_params = [altered_params_1, altered_params_2]
+
+        # alterations
         left_term = math.sqrt(3 / (3 + 1.5 * math.sqrt(3)))
         right_term = 1.5 / (3 + 1.5 * math.sqrt(3))
-        true_eigens_2 = left_term * (
+        base_eigens = left_term * (
             right_term ** torch.linspace(0, self.order - 1, self.order)
         )
+        true_eigens = torch.einsum(
+            "i,j->ij", base_eigens, base_eigens
+        ).flatten()
+
         eigens_2 = self.eigenvalue_generator(altered_params)
-        self.assertTrue(torch.allclose(eigens_2, true_eigens_2))
+        self.assertTrue(torch.allclose(eigens_2, true_eigens))
+
+    def test_inverse(self):
+        params = 2 * (
+            {
+                "precision_parameter": torch.Tensor([0.1]),
+                "ard_parameter": torch.Tensor([1.0]),
+                "variance_parameter": torch.Tensor([1.0]),
+            },
+        )
+        eigens = self.eigenvalue_generator(params)
+        initial_params = [
+            {
+                "precision_parameter": torch.Tensor([0.1]),
+                "ard_parameter": torch.Tensor([5.0]),
+                "variance_parameter": torch.Tensor([5.0]),
+            }
+        ] * 2
+        result_params = self.eigenvalue_generator.inverse(
+            eigens, initial_params
+        )
+
+        # breakpoint()
+        self.assertTrue(
+            torch.allclose(
+                result_params[0]["variance_parameter"],
+                params[0]["variance_parameter"],
+                rtol=1e-1,
+            )
+        )
+        self.assertTrue(
+            torch.allclose(
+                result_params[0]["ard_parameter"],
+                params[0]["ard_parameter"],
+                rtol=1e-1,
+            )
+        )
+        self.assertTrue(
+            torch.allclose(
+                result_params[1]["variance_parameter"],
+                params[1]["variance_parameter"],
+                rtol=1e-1,
+            )
+        )
+        self.assertTrue(
+            torch.allclose(
+                result_params[1]["ard_parameter"],
+                params[1]["ard_parameter"],
+                rtol=1e-1,
+            )
+        )
 
 
 class TestFavardEigenvalueGenerator(unittest.TestCase):
