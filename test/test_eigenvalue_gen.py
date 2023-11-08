@@ -292,28 +292,28 @@ class TestMultivariateSmoothExponentialFasshauerEigenvalueGenerator(
             torch.allclose(
                 result_params[0]["variance_parameter"],
                 params[0]["variance_parameter"],
-                rtol=1e-1,
+                rtol=5e-2,
             )
         )
         self.assertTrue(
             torch.allclose(
                 result_params[0]["ard_parameter"],
                 params[0]["ard_parameter"],
-                rtol=1e-1,
+                rtol=5e-2,
             )
         )
         self.assertTrue(
             torch.allclose(
                 result_params[1]["variance_parameter"],
                 params[1]["variance_parameter"],
-                rtol=1e-1,
+                rtol=5e-2,
             )
         )
         self.assertTrue(
             torch.allclose(
                 result_params[1]["ard_parameter"],
                 params[1]["ard_parameter"],
-                rtol=1e-1,
+                rtol=5e-2,
             )
         )
 
