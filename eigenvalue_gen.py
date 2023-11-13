@@ -37,7 +37,6 @@ def anti_sum(tensor: torch.Tensor, dim: int):
 
     argstring = start_argstring + end_argstring
     result = torch.einsum(argstring, tensor)
-    #    breakpoint()
     return result
 
 
@@ -289,8 +288,8 @@ class SmoothExponentialFasshauer(EigenvalueGenerator):
         # initialise the loop variables
         suboptimal = True
         counter = 0
-        ard_learning_rate = 0.15
-        variance_learning_rate = 0.15
+        ard_learning_rate = 1
+        variance_learning_rate = 1
         while suboptimal:
             # get the derivatives
             derivatives = self.derivatives(
@@ -331,12 +330,11 @@ class SmoothExponentialFasshauer(EigenvalueGenerator):
 
                 # check if they stopped changing
                 stopped_changing_ard &= torch.allclose(
-                    new_ard_parameter, param_set["ard_parameter"], rtol=1e-06
+                    new_ard_parameter, param_set["ard_parameter"]
                 )
                 stopped_changing_variance &= torch.allclose(
                     new_variance_parameter,
                     param_set["variance_parameter"],
-                    rtol=1e-06,
                 )
 
                 if stopped_changing_ard and stopped_changing_variance:
@@ -402,11 +400,10 @@ class SmoothExponentialFasshauer(EigenvalueGenerator):
 
         except RuntimeError as e:
             print(e)
-            eigen_vals = [self(param_set) for param_set in parameters]
-            current_eigs = self(current_params)
-            # breakpoint()
-            sum_term = anti_sum((2 * matrix_eigens * eigen_prod_term), 0)
-       breakpoint()
+        eigen_vals = [self(param_set) for param_set in parameters]
+        current_eigs = self(current_params)
+        # breakpoint()
+        sum_term = anti_sum((2 * matrix_eigens * eigen_prod_term), 0)
         return sum_term
 
     def _smooth_exponential_eigenvalues_fasshauer(self, parameters: dict):
