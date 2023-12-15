@@ -43,10 +43,10 @@ def anti_sum(tensor: torch.Tensor, dim: int):
 def eigenvalue_reshape(eigenvalue_tensors: torch.Tensor):
     """For a d-length list of tensors of eigenvalues, returns the einsum
     resulting from:
-        torch.einsum("na, nb, nc, nd -> nabcd", tensor[:,:,0],
-                     tensor[:,:,1],
-                     tensor[:,:,2],
-                     tensor[:,:,3])
+        torch.einsum("na, nb, nc, nd -> nabcd", tensor[:,0],
+                     tensor[:,1],
+                     tensor[:,2],
+                     tensor[:,3])
     """
     einsum_string = ""
     used_chars = ""
@@ -75,8 +75,6 @@ def harmonic(m, k):
     """
     Returns the generalised harmonic number H(m, k)
     """
-    # print("m:", m)
-    # print("k:", k)
     terms = [1 / (i**k) for i in range(1, m)]
     harmonics = sum(terms) if m > 1 else 1
     return harmonics
@@ -189,9 +187,10 @@ class SmoothExponentialFasshauer(EigenvalueGenerator):
         elif isinstance(parameters, list) or isinstance(parameters, tuple):
             parameters_list = parameters
             if len(parameters) != self.dimension:
+                breakpoint()
                 raise ValueError(
                     "The number of parameter dicts passed must match the \
-                     dimension parameter"
+                     dimension parameter of the eigenvalue generator"
                 )
             for params in parameters_list:
                 for param in self.required_parameters:
@@ -213,7 +212,6 @@ class SmoothExponentialFasshauer(EigenvalueGenerator):
 
         eigens_tensor = torch.zeros(self.order, len(parameters))
         for d, param_set in enumerate(parameters):
-            # for d in range(self.dimension):
             eigens = self._smooth_exponential_eigenvalues_fasshauer(
                 param_set
             )  # m x dim
@@ -244,8 +242,7 @@ class SmoothExponentialFasshauer(EigenvalueGenerator):
         parameters = self._check_parameters(parameters)
 
         vector_gradients_list = []
-        # other_eigen_term = prod(self(parameters))
-        for params in parameters:
+        for params in parameters:  # per dimension
             vector_gradients: dict = {}
             # ard_parameter
             vector_gradients["ard_parameter"] = self._ard_parameter_derivative(
@@ -289,7 +286,7 @@ class SmoothExponentialFasshauer(EigenvalueGenerator):
         suboptimal = True
         counter = 0
         ard_learning_rate = 1
-        variance_learning_rate = 1
+        variance_learning_rate = 0.0
         while suboptimal:
             # get the derivatives
             derivatives = self.derivatives(
@@ -337,6 +334,12 @@ class SmoothExponentialFasshauer(EigenvalueGenerator):
                     param_set["variance_parameter"],
                 )
 
+                # if stopped_changing_variance:
+                # print(
+                # colored("Variance parameter stopped changing", "blue")
+                # )
+                # if stopped_changing_ard:
+                # print(colored("ARD parameter stopped changing", "blue"))
                 if stopped_changing_ard and stopped_changing_variance:
                     print(colored("Parameter values stopped changing", "blue"))
 
@@ -400,8 +403,8 @@ class SmoothExponentialFasshauer(EigenvalueGenerator):
 
         except RuntimeError as e:
             print(e)
-        eigen_vals = [self(param_set) for param_set in parameters]
-        current_eigs = self(current_params)
+        # eigen_vals = [self(param_set) for param_set in parameters]
+        # current_eigs = self(current_params)
         # breakpoint()
         sum_term = anti_sum((2 * matrix_eigens * eigen_prod_term), 0)
         return sum_term
@@ -558,6 +561,46 @@ class SmoothExponentialFasshauer(EigenvalueGenerator):
         return eigenvalue_derivatives.squeeze()
 
 
+class BishopEigenvalues(EigenvalueGenerator):
+    required_params = ["a", "b", "degree"]
+    """
+    param shape:
+        A vector affecting the shape of the eigenvalue sequence.
+        Must be increasing.
+    param degree:
+        The polynomial degree. Following (Reade, 1992), the
+        smoothness of sample functions (in the limit, so this
+        is an approximation) will be described by this degree.
+        As parameterised here, a degree of k leads to sample functions
+        that would be k times differentiable.
+    """
+
+    def __init__(
+        self,
+        order,
+    ):
+        self.order = order
+
+    def __call__(self, parameters: dict) -> torch.Tensor:
+        """
+        Calculates and returns the eigenvalues.
+
+        The form of the eigenvalues is:
+            λ_i = \frac{1}{(a(\sum_j \beta^2_j)^k + b)}
+        where:
+            - a is the shape parameter
+            - b is the scale parameter
+            - k is the degree parameter
+            - \beta is a multi-index that marks the location in the tensor of
+              indices formed as the tensor product. For example, this might be
+              (2, 5) for the function that is 2nd order in the first dimension
+              and 5th order in the second dimension.
+
+        output shape: [order]
+        """
+        pass
+
+
 class PolynomialEigenvalues(EigenvalueGenerator):
     required_params = ["scale", "shape", "degree"]
     """
@@ -584,6 +627,14 @@ class PolynomialEigenvalues(EigenvalueGenerator):
     def __call__(self, parameters: dict) -> torch.Tensor:
         """
         Calculates and returns the eigenvalues.
+
+        The form of the eigenvalues is:
+            λ_i = \frac{b}{(i + a)^k}
+
+        where:
+            - b is the scale parameter
+            - a is the shape parameter
+            - k is the degree parameter
 
         output shape: [order]
         """

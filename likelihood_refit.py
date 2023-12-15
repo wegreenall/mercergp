@@ -12,6 +12,7 @@ import torch.distributions as D
 from mercergp.eigenvalue_gen import (
     EigenvalueGenerator,
     SmoothExponentialFasshauer,
+    eigenvalue_reshape,
 )
 from mercergp.kernels import MercerKernel
 from ortho.basis_functions import (
@@ -28,7 +29,8 @@ from termcolor import colored
 torch.autograd.set_detect_anomaly(True)
 torch.set_printoptions(linewidth=300)
 import matplotlib.pyplot as plt
-from typing import Tuple
+from typing import Tuple, List
+from math import prod
 
 
 class TermGenerator:
@@ -42,9 +44,9 @@ class TermGenerator:
         Stores terms used in the calculation of gradients for the likelihood.
 
         The gradient terms for the likelihood have the following structure:
-            dL/dθ = 0.5 * (y'K^{-1}dK/dθK^{-1}y - tr(K^{-1}dK/dθ))
+            dL/dθ = 0.5 * (y'K^{-1} dK/dθ K^{-1}y - tr(K^{-1}dK/dθ))
 
-        Note however that since the kernel is written ΦΛΦ', and the first time
+        Note however that since the kernel is written ΦΛΦ', and the first term
         is 1x1, we can calculate the first term as:
                     0.5 * z' δΛ/δθ
 
@@ -70,6 +72,7 @@ class TermGenerator:
         self.output_sample = output_sample
         self.kernel = kernel
         self.order = self.kernel.order
+        self.dimension = self.kernel.basis.dimension
 
         # initialise
         self.phi_data = None
@@ -120,7 +123,7 @@ class TermGenerator:
             self.phi_phi + noise**2 * torch.diag(1 / eigenvalues)
         )
         intermediate_term = (1 / noise**2) * (
-            torch.eye(self.order) - self.phi_phi @ inverse
+            torch.eye(self.order**self.dimension) - self.phi_phi @ inverse
         )
 
         data_term = ((intermediate_term @ self.phi_y) ** 2).squeeze()
@@ -160,7 +163,7 @@ class Likelihood:
         param_learning_rate: float = 0.00001,
         sigma_learning_rate: float = 0.00001,
         memoise=True,
-        optimisation_threshold=0.000001,
+        optimisation_threshold=0.0001,
     ):
         """
         Initialises the Likelihood class.
@@ -212,18 +215,31 @@ class Likelihood:
         """
         converged = False
         trained_noise = initial_noise.clone().detach()
-        trained_parameters = parameters.copy()
+        if isinstance(parameters, dict):
+            parameters = (parameters,)
+        trained_parameters = [params.copy() for params in parameters]
         iterations = 0
         while not converged and iterations < max_iterations:
             # Get the gradients
-            noise_gradient, parameters_gradients = self.get_gradients(
-                trained_parameters, trained_noise
+            eigenvalues = self.eigenvalue_generator(trained_parameters)
+            if (eigenvalues != eigenvalues).any():
+                print("NaN detected in eigenvalues")
+                breakpoint()
+            trained_parameters_gradients = self.get_parameter_gradients(
+                trained_parameters, eigenvalues, trained_noise
             )
+            # trained_parameters_gradients.append(parameters_gradients)
+            noise_gradient = self.get_noise_gradient(
+                trained_noise, eigenvalues
+            )
+            if noise_gradient != noise_gradient:
+                print("NaN detected in noise_gradient")
+                breakpoint()
 
-            # update the parameters
+            # update the noise
             trained_noise.data += self.sigma_learning_rate * noise_gradient
             if verbose:
-                if iterations % 500 == 0:
+                if iterations % 1 == 0:
                     print("Iteration: {}".format(iterations))
                     print("Order:", self.order)
                     print(
@@ -236,22 +252,34 @@ class Likelihood:
                         colored(trained_noise.data**2, "magenta"),
                     )
 
-            # it may be better as a tensor of parameter values...
-            for param in trained_parameters:
-                if verbose:
-                    if iterations % 500 == 0:
-                        print(
-                            "param gradient for: {}".format(param),
-                            colored(parameters_gradients[param], "blue"),
-                            end="",
-                        )
-                        print(
-                            "param value for: {}".format(param),
-                            colored(parameters[param], "red"),
-                        )
-                trained_parameters[param].data += (
-                    self.param_learning_rate * parameters_gradients[param]
-                )
+            # update the the other parameters
+            for params_dict, params_dict_gradients in zip(  # per dimension
+                trained_parameters, trained_parameters_gradients
+            ):
+                for param, gradient in zip(
+                    params_dict, params_dict_gradients
+                ):  # per parameter
+                    if (
+                        params_dict_gradients[param]
+                        != params_dict_gradients[param]
+                    ):
+                        print("NaN detected for: {}".format(param))
+                        breakpoint()
+                        break
+                    if verbose:
+                        if iterations % 1 == 0:
+                            print(
+                                "param gradient for: {}".format(param),
+                                colored(params_dict_gradients[param], "blue"),
+                                end="",
+                            )
+                            print(
+                                "param value for: {}".format(param),
+                                colored(params_dict[param], "red"),
+                            )
+                    params_dict[param].data += (
+                        self.param_learning_rate * params_dict_gradients[param]
+                    )
 
             # having updated parameters and noise values, change on the kernel
             # self.update_kernel_parameters(trained_parameters, trained_noise)
@@ -260,9 +288,14 @@ class Likelihood:
             """
             TEMPORARY SUBSTITUTION: WE WILL JUST USE NOISE AS THE CRITERION
             """
-            converged = (
-                torch.abs(noise_gradient) * self.sigma_learning_rate * 100
-                < self.epsilon
+            convergence_criterion = torch.abs(noise_gradient)
+            if convergence_criterion != convergence_criterion:
+                print("NaN detected!")
+                breakpoint()
+            converged = convergence_criterion < self.epsilon
+            print(
+                "convergence criterion:",
+                convergence_criterion,
             )
             # converged = (torch.abs(noise_gradient) < self.epsilon) and (
             # torch.Tensor(
@@ -321,49 +354,16 @@ class Likelihood:
         )
         return noise_gradient, parameters_gradients
 
-    def noise_gradient(
+    def get_noise_gradient(self, noise, eigenvalues):
+        noise_gradient = self.term_generator.get_noise_term(eigenvalues, noise)
+        return noise_gradient
+
+    def get_parameter_gradients(
         self,
-        kernel_inverse: torch.Tensor,
-        parameters: dict,
-        noise: torch.Tensor,
-    ) -> torch.Tensor:
-        """
-        Returns the gradient of the log-likelihood w.r.t the noise parameter.
-
-        Code in here will calculate the appropriate terms for the gradients
-        by calling the appropriate methods in the TermGenerator class.
-
-        Returns a tensor scalar containing the gradient information for
-        the noise parameter.
-
-        The key difference between this and the param_gradient function
-        is that in there the corresponding einsum must take into account the
-        extended shape of the parameters Tensor.
-
-        Because the kernel inverse is common to all terms, we precompute this
-        and pass it as an argument, for efficiency.
-        """
-        # get the terms
-        sigma_gradient_term = 2 * noise * torch.eye(self.input_sample.shape[0])
-
-        data_term = 0.5 * torch.einsum(
-            "i, ij..., jk..., kl..., l  ->",
-            self.output_sample,  # i
-            kernel_inverse,  # ij
-            sigma_gradient_term,
-            kernel_inverse,  # kl
-            self.output_sample,  # l
-        )
-        trace_term = 0.5 * torch.trace(kernel_inverse @ sigma_gradient_term)
-
-        return (data_term - trace_term).squeeze()  # the whole noise gradient
-
-    def parameters_gradient(
-        self,
-        term_vector: torch.Tensor,
         parameters: dict,
         # trained_noise: torch.Tensor,
-        # eigenvalues: torch.Tensor,
+        eigenvalues: torch.Tensor,
+        noise: torch.Tensor,
     ) -> dict:
         """
         Returns the gradient of the negative log likelihood w.r.t the
@@ -400,25 +400,120 @@ class Likelihood:
             which is the gradient of the eigenvalues with
             respect to that parameter.
         """
+        vector_term = self.term_generator.get_vector_term(eigenvalues, noise)
+
         # parameter_gradients is a dictionary of the same keys as parameters
-        parameter_gradients = parameters.copy()
+        parameter_gradients = [
+            params_dict.copy() for params_dict in parameters
+        ]
 
         eigenvalue_derivatives = self.eigenvalue_generator.derivatives(
             parameters
         )  # the dictionary
-
         # For each of the parameters, take the gradient given by the eigenvalue
         # generator and get the vector of values from the term_generator.
         # Then, for each of the parameters, inner-product the term generator
         # vector
-        for param in parameters:
-            # get the vector of eigenvalue derivatives for this parameter
-            eigenvalue_derivative_vector = eigenvalue_derivatives[param]
-            parameter_gradients[param] = (
-                term_vector @ eigenvalue_derivative_vector
-            )
+
+        """
+        In multiple dimensions, we have to construct the vector of gradients
+        by taking z @ dλ/dθ for each of the parameters. 
+        """
+
+        # d λ / d θ is d(λ_1, ..., λ_n) / dθ = (dλ_1/dθ, ..., dλ_n/dθ)
+        # however, λ_i is the product of (λ_i1, ..., λ_id)
+        # so dλ_i/dθ = dλ_i1/dθ λ_i2 ... λ_id
+        # if the parameter is to be found in the first dimension
+        eigenvalue_components = [
+            self.eigenvalue_generator(params) for params in parameters
+        ]
+        eigenvalue_components_derivatives = [
+            self.eigenvalue_generator.derivatives(params)[0]
+            for params in parameters
+        ]
+        for d in range(self.kernel.basis.dimension):
+            params_dict = parameters[d]
+            # eigenvalue_derivs_dict = eigenvalue_derivatives[d]
+            parameter_gradients_dict = parameter_gradients[d]
+
+            # per dimension
+            for param in params_dict:
+                # get the corresponding eigenvalue stuff out
+                # eigenvalue_derivative_vector = eigenvalue_derivs_dict[param]
+                eigenvalue_derivative_vector = (
+                    self._get_eigenvalue_derivative_vector(
+                        eigenvalue_components,
+                        eigenvalue_components_derivatives,
+                        param,
+                        d,
+                    )
+                )
+
+                parameter_gradients_dict[param] = (
+                    vector_term @ eigenvalue_derivative_vector
+                )
 
         return parameter_gradients
+
+    def _get_eigenvalue_derivative_vector(
+        self,
+        eigenvalue_components,
+        eigenvalue_components_derivatives,
+        param: str,
+        dimension: int,
+    ) -> torch.Tensor:
+        """
+        Returns the vector of eigenvalue derivatives for the dth dimension.
+        """
+        derivs_set = [eigenvalue_components_derivatives[dimension][param]]
+        eigens_beginning = eigenvalue_components[:dimension]
+        eigens_end = eigenvalue_components[dimension + 1 :]
+        eigens_for_reshape = torch.vstack(
+            eigens_beginning + derivs_set + eigens_end
+        ).t()
+        product_eigens = eigenvalue_reshape(eigens_for_reshape)
+        eigenvalue_derivative_vector = torch.reshape(
+            product_eigens,
+            (self.order**self.kernel.basis.dimension,),
+        )
+        return eigenvalue_derivative_vector
+
+    # def noise_gradient(
+    # self,
+    # kernel_inverse: torch.Tensor,
+    # parameters: dict,
+    # noise: torch.Tensor,
+    # ) -> torch.Tensor:
+    # """
+    # Returns the gradient of the log-likelihood w.r.t the noise parameter.
+
+    # Code in here will calculate the appropriate terms for the gradients
+    # by calling the appropriate methods in the TermGenerator class.
+
+    # Returns a tensor scalar containing the gradient information for
+    # the noise parameter.
+
+    # The key difference between this and the param_gradient function
+    # is that in there the corresponding einsum must take into account the
+    # extended shape of the parameters Tensor.
+
+    # Because the kernel inverse is common to all terms, we precompute this
+    # and pass it as an argument, for efficiency.
+    # """
+    # # get the terms
+    # sigma_gradient_term = 2 * noise * torch.eye(self.input_sample.shape[0])
+
+    # data_term = 0.5 * torch.einsum(
+    # "i, ij..., jk..., kl..., l  ->",
+    # self.output_sample,  # i
+    # kernel_inverse,  # ij
+    # sigma_gradient_term,
+    # kernel_inverse,  # kl
+    # self.output_sample,  # l
+    # )
+    # trace_term = 0.5 * torch.trace(kernel_inverse @ sigma_gradient_term)
+
+    # return (data_term - trace_term).squeeze()  # the whole noise gradient
 
 
 def optimise_explicit_gradients(

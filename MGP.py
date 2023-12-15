@@ -241,9 +241,14 @@ class MercerGP:
             )
 
         if use_noise:
-            posterior_predictive_variance += (
-                self.kernel.kernel_args["noise_parameter"] ** 2
-            ) * torch.eye(len(test_points))
+            if self.dim == 1:
+                posterior_predictive_variance += (
+                    self.kernel.kernel_args["noise_parameter"] ** 2
+                ) * torch.eye(len(test_points))
+            else:
+                posterior_predictive_variance += (
+                    self.kernel.kernel_args[0]["noise_parameter"] ** 2
+                ) * torch.eye(len(test_points))
 
         # add jitter for positive definiteness
         # posterior_predictive_variance_jittered = (

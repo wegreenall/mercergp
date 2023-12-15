@@ -309,9 +309,28 @@ class MercerKernel(StationaryKernel):
         self.basis = basis
 
         self.eigenvalues = eigenvalues
-        for param in self.required_kernel_arguments:
-            if param not in kernel_args:
-                raise KeyError(str(param) + " not found in kernel args")
+        # for param in self.required_kernel_arguments:
+        # if param not in kernel_args:
+        # raise KeyError(str(param) + " not found in kernel args")
+
+        if isinstance(kernel_args, dict):
+            parameters_list = [kernel_args]
+        elif isinstance(kernel_args, list) or isinstance(kernel_args, tuple):
+            parameters_list = kernel_args
+            if len(kernel_args) != self.basis.dimension:
+                breakpoint()
+                raise ValueError(
+                    "The number of parameter dicts passed must match the \
+                     dimension parameter of the eigenvalue generator"
+                )
+            for params in parameters_list:
+                for param in self.required_kernel_arguments:
+                    if param not in params:
+                        raise ValueError(
+                            "The parameter "
+                            + param
+                            + " is required but not found"
+                        )
         self.kernel_args = kernel_args
 
     @staticmethod
@@ -356,12 +375,26 @@ class MercerKernel(StationaryKernel):
         #     matrix += e * torch.outer(input_ksi[:,i] , test_ksi[i, :])
         if len(input_ksi.shape) != 2 or len(test_ksi.shape) != 2:
             breakpoint()
-        try:
-            kernel = self.kernel_args["variance_parameter"] * torch.einsum(
+
+        if self.basis.dimension == 1:
+            try:
+                kernel = self.kernel_args["variance_parameter"] * torch.einsum(
+                    "ij,jk...,kl -> il...", input_ksi, diag_l, test_ksi
+                )
+            except RuntimeError as e:
+                print("Calculating the kernel failed; the error was:")
+                print(e)
+                breakpoint()
+
+        else:
+            net_variance_parameter = torch.prod(
+                torch.Tensor(
+                    [args["variance_parameter"] for args in self.kernel_args]
+                )
+            )
+            kernel = net_variance_parameter * torch.einsum(
                 "ij,jk...,kl -> il...", input_ksi, diag_l, test_ksi
             )
-        except RuntimeError:
-            breakpoint()
         return kernel
 
     def get_ksi(self, input_points):
@@ -391,7 +424,12 @@ class MercerKernel(StationaryKernel):
         where Ξ is an Nxm feature matrix, and Λ is an mxm diagonal matrix
         of operator eigenvalues.
         """
-        sigma_e = self.kernel_args["noise_parameter"]  # get noise parameter
+        if self.basis.dimension == 1:
+            sigma_e = self.kernel_args[
+                "noise_parameter"
+            ]  # get noise parameter
+        else:
+            sigma_e = self.kernel_args[0]["noise_parameter"]
 
         # inv_diag_l = torch.diag(1/self.eigenvalues)  # Λ^-1
 
@@ -412,7 +450,11 @@ class MercerKernel(StationaryKernel):
         method (and in general by the WSM formula).
         """
         ksi = self.get_ksi(input_points)
-        sigma_e = self.kernel_args["noise_parameter"]
+        if self.basis.dimension == 1:
+            sigma_e = self.kernel_args["noise_parameter"]
+        else:
+            sigma_e = self.kernel_args[0]["noise_parameter"]
+
         inv_diag_l = torch.diag(1 / self.eigenvalues)  # Λ^-1
         ksiksi = torch.mm(ksi.T, ksi)  # Ξ'Ξ
 

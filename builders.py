@@ -253,10 +253,10 @@ def build_mercer_gp(
     under the assumption that the noise parameter will be given as the same in each
     dimension (since it's noise on the output rather than the input).
     """
-    if dim != 1:
-        kernel = MercerKernel(order, basis, eigenvalues, parameters[0])
-    else:
-        kernel = MercerKernel(order, basis, eigenvalues, parameters)
+    # if dim != 1:
+    # kernel = MercerKernel(order, basis, eigenvalues, parameters[0])
+    # else:
+    kernel = MercerKernel(order, basis, eigenvalues, parameters)
 
     # build the gp
     # builder = (
