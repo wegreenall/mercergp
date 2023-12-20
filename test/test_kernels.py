@@ -101,13 +101,13 @@ class TestMercerKernel(unittest.TestCase):
             (self.mercer_kernel_args, self.mercer_kernel_args)
         )
 
+        kernel_args_2d = [self.mercer_kernel_args, self.mercer_kernel_args]
         self.kernel_2d = K.MercerKernel(
             self.order,
             self.basis_2d,
             self.eigenvalues_2d,
-            self.mercer_kernel_args,
+            kernel_args_2d,
         )
-        pass
 
     def test_flat(self):
         # test how calling the kernel on various shapes works.
