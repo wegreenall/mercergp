@@ -653,8 +653,13 @@ class CompositeKernel(StationaryKernel):
 
 
 if __name__ == "__main__":
-    test_rff = True
+    test_rff = False
     test_chebys = False
+    test_mercer_kernel = True
+    l_se = torch.Tensor([[2]])
+    sigma_se = torch.Tensor([3])
+    sigma_e = torch.Tensor([1])
+    epsilon = torch.Tensor([1])
     if test_chebys:
         # generate a kernel and show it as a heatmap
         l_se = torch.Tensor([[2]])
@@ -694,4 +699,50 @@ if __name__ == "__main__":
         kernel_matrix = rff_kernel(x_axis, x_axis)
         plt.imshow(kernel_matrix)
         plt.colorbar()
+        plt.show()
+
+    if test_mercer_kernel:
+        fineness = 500
+        # get the standard kernel
+        x_axis = torch.linspace(-3, 3, fineness).unsqueeze(1)
+
+        def smooth_exponential_kernel(x, y):
+            return torch.exp(-torch.cdist(x, y) ** 2 / 2)
+
+        kernel_matrix = smooth_exponential_kernel(
+            x_axis, x_axis
+        ) + 1e-6 * torch.eye(x_axis.shape[0])
+        plt.imshow(kernel_matrix)
+        plt.show()
+
+        # mercer kernel
+        mercer_args = {
+            "ard_parameter": l_se,
+            "variance_parameter": sigma_se,
+            "noise_parameter": sigma_e,
+            "precision_parameter": epsilon,
+        }
+        print(torch.linalg.det(kernel_matrix))
+        chol = torch.linalg.cholesky(kernel_matrix)
+        z = D.Normal(torch.zeros(fineness), torch.ones(fineness)).sample()
+        gp_sample = chol @ z
+        plt.plot(x_axis, gp_sample)
+        plt.show()
+        breakpoint()
+
+        order = 15
+        basis = Basis(
+            smooth_exponential_basis_fasshauer, 1, order, mercer_args
+        )
+        eigenvalues = smooth_exponential_eigenvalues_fasshauer(
+            order, mercer_args
+        )
+        mercer_kernel = MercerKernel(
+            order,
+            basis,
+            eigenvalues,
+            mercer_args,
+        )
+        mercer_kernel_matrix = mercer_kernel(x_axis, x_axis)
+        plt.imshow(mercer_kernel_matrix)
         plt.show()
